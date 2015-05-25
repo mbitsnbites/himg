@@ -27,15 +27,22 @@ int main(int argc, const char **argv) {
     std::cout << "Usage: " << argv[0] << " image outfile" << std::endl;
     return 0;
   }
+  const char *input_file = argv[1];
+  const char *output_file = argv[2];
 
   FreeImage_Initialise();
 
   // Load the source image using FreeImage.
   FIBITMAP *bitmap;
   {
-    FIBITMAP *bitmap_tmp = FreeImage_Load(FIF_PNG, argv[1], PNG_DEFAULT);
+    FREE_IMAGE_FORMAT format = FreeImage_GetFileType(input_file);
+    if (format == FIF_UNKNOWN) {
+      std::cerr << "Unknown file format for " << input_file << std::endl;
+      return -1;
+    }
+    FIBITMAP *bitmap_tmp = FreeImage_Load(format, input_file);
     if (!bitmap_tmp) {
-      std::cerr << "Unable to load image file." << std::endl;
+      std::cerr << "Unable to load " << input_file << std::endl;
       return -1;
     }
 
@@ -66,7 +73,7 @@ int main(int argc, const char **argv) {
 
   // Write packed data to a file.
   {
-    std::ofstream f(argv[2], std::ofstream::out | std::ofstream::binary);
+    std::ofstream f(output_file, std::ofstream::out | std::ofstream::binary);
     f.write(reinterpret_cast<const char *>(encoder.packed_data()),
             encoder.packed_size());
   }
