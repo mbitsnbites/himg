@@ -25,24 +25,25 @@ const uint8_t kQuantTable[64] = {
   10, 10, 10, 11, 11, 11, 11, 11
 };
 
-// TODO(m): Base this on histogram studies.
+// This LUT is based on histogram studies.
 const int16_t kDelinearizeTable[128] = {
-  1, 2, 3, 4, 5, 6, 7, 8,
-  9, 10, 11, 12, 13, 14, 15, 16,
-  17, 18, 19, 20, 21, 22, 23, 24,
-  25, 26, 27, 28, 29, 30, 31, 32,
-  33, 35, 37, 39, 41, 43, 45, 47,
-  49, 51, 53, 55, 57, 59, 61, 63,
-  65, 69, 73, 77, 81, 85, 89, 93,
-  97, 101, 105, 109, 113, 117, 121, 125,
-  129, 137, 145, 153, 161, 169, 177, 185,
-  193, 201, 209, 217, 225, 233, 241, 249,
-  257, 265, 273, 281, 289, 297, 305, 313,
-  321, 329, 337, 345, 353, 361, 369, 377,
-  385, 401, 417, 433, 449, 465, 481, 497,
-  513, 529, 545, 561, 577, 593, 609, 625,
-  641, 657, 673, 689, 705, 721, 737, 753,
-  769, 785, 800, 820, 850, 900, 1000, 1500
+  1, 2, 3, 4, 5, 6, 7,
+  8, 9, 10, 11, 12, 13, 14, 15,
+  16, 17, 18, 19, 20, 21, 22, 23,
+  24, 25, 26, 27, 28, 29, 30, 31,
+  32, 33, 34, 35, 36, 37, 38, 39,
+  40, 41, 42, 43, 44, 45, 46, 47,
+  48, 49, 50, 51, 52, 53, 54, 55,
+  56, 57, 58, 59, 60, 61, 62, 63,
+  64, 65, 66, 67, 68, 69, 70, 71,
+  73, 74, 76, 78, 79, 81, 83, 85,
+  87, 89, 92, 94, 97, 100, 103, 106,
+  109, 112, 116, 120, 125, 130, 135, 140,
+  146, 152, 159, 166, 173, 181, 190, 200,
+  210, 221, 233, 246, 260, 276, 293, 312,
+  333, 357, 383, 413, 448, 488, 535, 590,
+  656, 737, 838, 968, 1141, 1386, 1767, 2471,
+  5000
 };
 
 uint8_t ToSignedMagnitude(int16_t abs_x, bool negative) {
@@ -52,19 +53,22 @@ uint8_t ToSignedMagnitude(int16_t abs_x, bool negative) {
   }
 
   // Look up the code.
-  // TODO(m): Do binary search, and proper rounding.
+  // TODO(m): Do binary search.
   uint8_t code;
-  for (code = 0; code < 127; ++code) {
-    if (abs_x < kDelinearizeTable[code + 1])
+  for (code = 0; code <= 127; ++code) {
+    if (abs_x <= kDelinearizeTable[code])
       break;
   }
-  code++;  // 1 <= code <= 128
+  if (code > 0 && code < 128) {
+    if (abs_x - kDelinearizeTable[code - 1] < kDelinearizeTable[code] - abs_x)
+      code--;
+  }
 
   // Combine code and sign bit.
   if (negative)
-    return ((code - 1) << 1) + 1;
+    return (code << 1) + 1;
   else
-    return code <= 127 ? (code << 1) : 254;
+    return code <= 126 ? ((code + 1) << 1) : 254;
 }
 
 int16_t FromSignedMagnitude(uint8_t x) {
