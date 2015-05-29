@@ -31,12 +31,16 @@ class Decoder {
   int num_channels() const { return m_num_channels; }
 
  private:
+  bool DecodeRIFFStart();
   bool DecodeHeader();
   bool DecodeQuantizationConfig();
   bool DecodeLowRes();
   bool DecodeFullRes();
 
-  bool UncompressData(uint8_t *out, int out_size);
+  bool DecodeRIFFChunk(uint32_t *fourcc, int *size);
+  bool FindRIFFChunk(uint32_t fourcc, int *size);
+
+  bool UncompressData(uint8_t *out, int out_size, int in_size);
 
   Quantize m_quantize;
   std::vector<Downsampled> m_downsampled;

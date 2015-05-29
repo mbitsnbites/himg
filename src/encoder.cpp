@@ -101,6 +101,9 @@ bool Encoder::Encode(const uint8_t *data,
                      bool use_ycbcr) {
   m_packed_data.clear();
 
+  // This is a RIFF file.
+  EncodeRIFFStart();
+
   // Header data.
   EncodeHeader(width, height, num_channels, use_ycbcr);
 
@@ -124,17 +127,57 @@ bool Encoder::Encode(const uint8_t *data,
   // Full resolution data.
   EncodeFullRes(color_space_data, width, height, pixel_stride, num_channels);
 
+  // Update the RIFF header.
+  UpdateRIFFStart();
+
   return true;
+}
+
+void Encoder::EncodeRIFFStart() {
+  m_packed_data.reserve(12);
+
+  m_packed_data.push_back('R');
+  m_packed_data.push_back('I');
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('F');
+
+  // The file size, which is updated once the compression process is completed.
+  m_packed_data.push_back(0);
+  m_packed_data.push_back(0);
+  m_packed_data.push_back(0);
+  m_packed_data.push_back(0);
+
+  m_packed_data.push_back('H');
+  m_packed_data.push_back('I');
+  m_packed_data.push_back('M');
+  m_packed_data.push_back('G');
+}
+
+void Encoder::UpdateRIFFStart() {
+  uint32_t file_size = m_packed_data.size() - 8;
+  m_packed_data[4] = file_size & 255;
+  m_packed_data[5] = (file_size >> 8) & 255;
+  m_packed_data[6] = (file_size >> 16) & 255;
+  m_packed_data[7] = (file_size >> 24) & 255;
 }
 
 void Encoder::EncodeHeader(int width,
                            int height,
                            int num_channels,
                            bool use_ycrcb) {
-  m_packed_data.push_back('H');
-  m_packed_data.push_back('I');
+  const int header_size = 11;
+  m_packed_data.reserve(m_packed_data.size() + 8 + header_size);
+
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('R');
   m_packed_data.push_back('M');
-  m_packed_data.push_back('G');
+  m_packed_data.push_back('T');
+
+  m_packed_data.push_back(header_size & 255);
+  m_packed_data.push_back((header_size >> 8) & 255);
+  m_packed_data.push_back((header_size >> 16) & 255);
+  m_packed_data.push_back((header_size >> 24) & 255);
+
   m_packed_data.push_back(1);  // Version
   m_packed_data.push_back(width & 255);
   m_packed_data.push_back((width >> 8) & 255);
@@ -150,11 +193,17 @@ void Encoder::EncodeHeader(int width,
 
 void Encoder::EncodeQuantizationConfig() {
   // Store the quantization data in the output buffer.
+  m_packed_data.push_back('Q');
+  m_packed_data.push_back('C');
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('G');
+
   int config_size = m_quantize.ConfigurationSize();
   m_packed_data.push_back(config_size & 255);
   m_packed_data.push_back((config_size >> 8) & 255);
   m_packed_data.push_back((config_size >> 16) & 255);
   m_packed_data.push_back((config_size >> 24) & 255);
+
   int quantization_config_base = static_cast<int>(m_packed_data.size());
   m_packed_data.resize(
         quantization_config_base + config_size);
@@ -166,6 +215,11 @@ void Encoder::EncodeLowRes(const uint8_t *data,
                            int height,
                            int pixel_stride,
                            int num_channels) {
+  m_packed_data.push_back('L');
+  m_packed_data.push_back('R');
+  m_packed_data.push_back('E');
+  m_packed_data.push_back('S');
+
   // Construct low-res (divided by 8x8) images for all channels.
   for (int chan = 0; chan < num_channels; ++chan) {
     m_downsampled.push_back(Downsampled());
@@ -195,6 +249,11 @@ void Encoder::EncodeFullRes(const uint8_t *data,
                             int height,
                             int pixel_stride,
                             int num_channels) {
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('R');
+  m_packed_data.push_back('E');
+  m_packed_data.push_back('S');
+
   // Prepare an unpacked buffer for all channels.
   const int num_blocks = ((width + 7) >> 3) * ((height + 7) >> 3);
   const int unpacked_size = num_blocks * 64 * num_channels;

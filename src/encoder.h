@@ -34,6 +34,8 @@ class Encoder {
   int packed_size() const { return static_cast<int>(m_packed_data.size()); }
 
  private:
+  void EncodeRIFFStart();
+  void UpdateRIFFStart();
   void EncodeHeader(int width, int height, int num_channels, bool use_ycrcb);
   void EncodeQuantizationConfig();
   void EncodeLowRes(const uint8_t *data,

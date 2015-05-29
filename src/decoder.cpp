@@ -21,6 +21,13 @@ namespace himg {
 
 namespace {
 
+uint32_t ToFourcc(const char name[4]) {
+  return static_cast<uint32_t>(name[0]) |
+         (static_cast<uint32_t>(name[1]) << 8) |
+         (static_cast<uint32_t>(name[2]) << 16) |
+         (static_cast<uint32_t>(name[3]) << 24);
+}
+
 uint8_t ClampTo8Bit(int16_t x) {
   return x >= 0 ? (x <= 255 ? static_cast<uint8_t>(x) : 255) : 0;
 }
@@ -85,6 +92,12 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
 
   m_unpacked_data.clear();
 
+  // Check that this is a RIFF HIMG file.
+  if (!DecodeRIFFStart()) {
+    std::cout << "Not a RIFF HIMG file.\n";
+    return false;
+  }
+
   // Header data.
   if (!DecodeHeader()) {
     std::cout << "Error decoding header.\n";
@@ -99,70 +112,98 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
 
   // Lowres data.
   if (!DecodeLowRes()) {
-    std::cout << "Error decoding low-res image.\n";
+    std::cout << "Error decoding low-res data.\n";
     return false;
   }
 
   // Full resolution data.
   if (!DecodeFullRes()) {
-    std::cout << "Error decoding full-res image.\n";
+    std::cout << "Error decoding full-res data.\n";
     return false;
   }
+
+  return true;
+}
+
+bool Decoder::DecodeRIFFStart() {
+  if (m_packed_size < 12)
+    return false;
+
+  if (m_packed_data[0] != 'R' || m_packed_data[1] != 'I' ||
+      m_packed_data[2] != 'F' || m_packed_data[3] != 'F')
+    return false;
+
+  int file_size = static_cast<int>(m_packed_data[4]) |
+                  (static_cast<int>(m_packed_data[5]) << 8) |
+                  (static_cast<int>(m_packed_data[6]) << 16) |
+                  (static_cast<int>(m_packed_data[7]) << 24);
+  if (file_size + 8 != m_packed_size)
+    return false;
+
+  if (m_packed_data[8] != 'H' || m_packed_data[9] != 'I' ||
+      m_packed_data[10] != 'M' || m_packed_data[11] != 'G')
+    return false;
+
+  m_packed_idx += 12;
 
   return true;
 }
 
 bool Decoder::DecodeHeader() {
-  // Check magic ID and version.
-  if (m_packed_size < 15) {
+  // Find the FRMT chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("FRMT"), &chunk_size))
     return false;
-  }
-  if (m_packed_data[0] != 'H' || m_packed_data[1] != 'I' ||
-      m_packed_data[2] != 'M' || m_packed_data[3] != 'G' ||
-      m_packed_data[4] != 1) {
-    std::cout << "Incorrect magic ID or version number.\n";
+  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
+  m_packed_idx += chunk_size;
+
+  // Check the header size.
+  if (chunk_size < 11)
+    return false;
+
+  // Check version.
+  uint8_t version = chunk_data[0];
+  if (version != 1) {
+    std::cout << "Incorrect HIMG version number.\n";
     return false;
   }
 
   // Get image dimensions.
-  m_width = static_cast<int>(m_packed_data[5]) |
-            (static_cast<int>(m_packed_data[6]) << 8) |
-            (static_cast<int>(m_packed_data[7]) << 16) |
-            (static_cast<int>(m_packed_data[8]) << 24);
-  m_height = static_cast<int>(m_packed_data[9]) |
-             (static_cast<int>(m_packed_data[10]) << 8) |
-             (static_cast<int>(m_packed_data[11]) << 16) |
-             (static_cast<int>(m_packed_data[12]) << 24);
-  m_num_channels = static_cast<int>(m_packed_data[13]);
-  m_use_ycbcr = m_packed_data[14] != 0;
+  m_width = static_cast<int>(chunk_data[1]) |
+            (static_cast<int>(chunk_data[2]) << 8) |
+            (static_cast<int>(chunk_data[3]) << 16) |
+            (static_cast<int>(chunk_data[4]) << 24);
+  m_height = static_cast<int>(chunk_data[5]) |
+             (static_cast<int>(chunk_data[6]) << 8) |
+             (static_cast<int>(chunk_data[7]) << 16) |
+             (static_cast<int>(chunk_data[8]) << 24);
+  m_num_channels = static_cast<int>(chunk_data[9]);
+  m_use_ycbcr = chunk_data[10] != 0;
 
   std::cout << "Image dimensions: " << m_width << "x" << m_height << " ("
             << m_num_channels << " channels).\n";
-
-  m_packed_idx = 15;
 
   return true;
 }
 
 bool Decoder::DecodeQuantizationConfig() {
-  // Get the quantization configuration size.
-  int config_size = static_cast<int>(m_packed_data[m_packed_idx]) |
-                    (static_cast<int>(m_packed_data[m_packed_idx + 1]) << 8) |
-                    (static_cast<int>(m_packed_data[m_packed_idx + 2]) << 16) |
-                    (static_cast<int>(m_packed_data[m_packed_idx + 3]) << 24);
-  m_packed_idx += 4;
-  if (m_packed_idx + config_size > m_packed_size)
+  // Find the QCFG chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("QCFG"), &chunk_size))
     return false;
+  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
+  m_packed_idx += chunk_size;
 
   // Restore the configuration.
-  if (!m_quantize.SetConfiguration(&m_packed_data[m_packed_idx], config_size))
-    return false;
-  m_packed_idx += config_size;
-
-  return true;
+  return m_quantize.SetConfiguration(chunk_data, chunk_size);
 }
 
 bool Decoder::DecodeLowRes() {
+  // Find the LRES chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("LRES"), &chunk_size))
+    return false;
+
   // Prepare a buffer for all channels.
   const int num_rows = (m_height + 7) >> 3;
   const int num_cols = (m_width + 7) >> 3;
@@ -172,7 +213,7 @@ bool Decoder::DecodeLowRes() {
   std::vector<uint8_t> unpacked_data(unpacked_size);
 
   // Uncompress source data.
-  if (!UncompressData(unpacked_data.data(), unpacked_size))
+  if (!UncompressData(unpacked_data.data(), unpacked_size, chunk_size))
     return false;
 
   // Initialize the downsampled version of each channel.
@@ -183,12 +224,17 @@ bool Decoder::DecodeLowRes() {
         unpacked_data.data() + channel_size * chan, num_rows, num_cols);
   }
 
-  std::cout << "Decoded lowres image " << num_cols << "x" << num_rows << std::endl;
+  std::cout << "Decoded lowres data " << num_cols << "x" << num_rows << std::endl;
 
   return true;
 }
 
 bool Decoder::DecodeFullRes() {
+  // Find the FRES chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("FRES"), &chunk_size))
+    return false;
+
   // Reserve space for the output data.
   m_unpacked_data.resize(m_width * m_height * m_num_channels);
 
@@ -198,7 +244,7 @@ bool Decoder::DecodeFullRes() {
   std::vector<uint8_t> unpacked_data(unpacked_size);
 
   // Uncompress all channels using Huffman.
-  if (!UncompressData(unpacked_data.data(), unpacked_size))
+  if (!UncompressData(unpacked_data.data(), unpacked_size, chunk_size))
     return false;
   std::cout << "Uncompressed full res data.\n";
 
@@ -266,19 +312,43 @@ bool Decoder::DecodeFullRes() {
   return true;
 }
 
-bool Decoder::UncompressData(uint8_t *out, int out_size) {
-  // Get the input data size (packed size).
-  if ((m_packed_idx + 4) > m_packed_size)
+bool Decoder::DecodeRIFFChunk(uint32_t *fourcc, int *size) {
+  if ((m_packed_idx + 8) > m_packed_size)
     return false;
-  int in_size = static_cast<int>(m_packed_data[m_packed_idx]) |
-                (static_cast<int>(m_packed_data[m_packed_idx + 1]) << 8) |
-                (static_cast<int>(m_packed_data[m_packed_idx + 2]) << 16) |
-                (static_cast<int>(m_packed_data[m_packed_idx + 3]) << 24);
-  m_packed_idx += 4;
 
+  *fourcc = static_cast<uint32_t>(m_packed_data[m_packed_idx]) |
+            (static_cast<uint32_t>(m_packed_data[m_packed_idx + 1]) << 8) |
+            (static_cast<uint32_t>(m_packed_data[m_packed_idx + 2]) << 16) |
+            (static_cast<uint32_t>(m_packed_data[m_packed_idx + 3]) << 24);
+  *size = static_cast<int>(m_packed_data[m_packed_idx + 4]) |
+          (static_cast<int>(m_packed_data[m_packed_idx + 5]) << 8) |
+          (static_cast<int>(m_packed_data[m_packed_idx + 6]) << 16) |
+          (static_cast<int>(m_packed_data[m_packed_idx + 7]) << 24);
+
+  m_packed_idx += 8;
+  return m_packed_idx + *size <= m_packed_size;
+}
+
+bool Decoder::FindRIFFChunk(uint32_t fourcc, int *size) {
+  uint32_t chunk_fourcc;
+  int chunk_size;
+  while (DecodeRIFFChunk(&chunk_fourcc, &chunk_size)) {
+    // Did we find the requested chunk?
+    if (chunk_fourcc == fourcc) {
+      *size = chunk_size;
+      return true;
+    }
+
+    // Unrecognized chunk. Skip to the next one.
+    m_packed_idx += chunk_size;
+  }
+
+  // We didn't find the chunk.
+  return false;
+}
+
+bool Decoder::UncompressData(uint8_t *out, int out_size, int in_size) {
   // Uncompress data.
-  if ((m_packed_idx + in_size) > m_packed_size)
-    return false;
   std::cout << "Unpacking " << in_size << " Huffman compressed bytes."
             << std::endl;
   Huffman::Uncompress(out, m_packed_data + m_packed_idx, in_size, out_size);
