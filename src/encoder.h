@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "downsampled.h"
+#include "quantize.h"
 
 namespace himg {
 
@@ -34,7 +35,7 @@ class Encoder {
 
  private:
   void EncodeHeader(int width, int height, int num_channels, bool use_ycrcb);
-  void EncodeQuantizationTable(const uint8_t *table);
+  void EncodeQuantizationConfig();
   void EncodeLowRes(const uint8_t *data,
                     int width,
                     int height,
@@ -44,11 +45,11 @@ class Encoder {
                      int width,
                      int height,
                      int pixel_stride,
-                     int num_channels,
-                     uint8_t *quant_table);
+                     int num_channels);
 
   int AppendPackedData(const uint8_t *unpacked_data, int unpacked_size);
 
+  Quantize m_quantize;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_packed_data;
 };

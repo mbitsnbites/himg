@@ -104,10 +104,9 @@ bool Encoder::Encode(const uint8_t *data,
   // Header data.
   EncodeHeader(width, height, num_channels, use_ycbcr);
 
-  // Quantization table.
-  uint8_t quant_table[64];
-  Quantize::MakeTable(quant_table, quality);
-  EncodeQuantizationTable(quant_table);
+  // Generate the quantization configuration.
+  m_quantize.InitForQuality(quality);
+  EncodeQuantizationConfig();
 
   // Optionally convert to YCrCb.
   const uint8_t *color_space_data = data;
@@ -123,8 +122,7 @@ bool Encoder::Encode(const uint8_t *data,
   EncodeLowRes(color_space_data, width, height, pixel_stride, num_channels);
 
   // Full resolution data.
-  EncodeFullRes(
-      color_space_data, width, height, pixel_stride, num_channels, quant_table);
+  EncodeFullRes(color_space_data, width, height, pixel_stride, num_channels);
 
   return true;
 }
@@ -150,20 +148,17 @@ void Encoder::EncodeHeader(int width,
   m_packed_data.push_back(use_ycrcb ? 1 : 0);  // Color space (RGB / YCbCr).
 }
 
-void Encoder::EncodeQuantizationTable(const uint8_t *table) {
-  // The quantization table is RLE encoded (we could do even better, but this
-  // typically takes less than 10 bytes, so...).
-  uint8_t count = 1;
-  for (int i = 0; i < 64; ++i) {
-    uint8_t x = table[kIndexLUT[i]];
-    if (i < 63 && x == table[kIndexLUT[i + 1]]) {
-      count++;
-    } else {
-      m_packed_data.push_back(x);
-      m_packed_data.push_back(count);
-      count = 1;
-    }
-  }
+void Encoder::EncodeQuantizationConfig() {
+  // Store the quantization data in the output buffer.
+  int config_size = m_quantize.ConfigurationSize();
+  m_packed_data.push_back(config_size & 255);
+  m_packed_data.push_back((config_size >> 8) & 255);
+  m_packed_data.push_back((config_size >> 16) & 255);
+  m_packed_data.push_back((config_size >> 24) & 255);
+  int quantization_config_base = static_cast<int>(m_packed_data.size());
+  m_packed_data.resize(
+        quantization_config_base + config_size);
+  m_quantize.GetConfiguration(&m_packed_data[quantization_config_base]);
 }
 
 void Encoder::EncodeLowRes(const uint8_t *data,
@@ -199,8 +194,7 @@ void Encoder::EncodeFullRes(const uint8_t *data,
                             int width,
                             int height,
                             int pixel_stride,
-                            int num_channels,
-                            uint8_t *quant_table) {
+                            int num_channels) {
   // Prepare an unpacked buffer for all channels.
   const int num_blocks = ((width + 7) >> 3) * ((height + 7) >> 3);
   const int unpacked_size = num_blocks * 64 * num_channels;
@@ -248,7 +242,7 @@ void Encoder::EncodeFullRes(const uint8_t *data,
 
         // Quantize.
         uint8_t packed[64];
-        Quantize::Pack(packed, buf1, quant_table);
+        m_quantize.Pack(packed, buf1);
 
         // Store quantized data in the unpacked buffer.
         for (int i = 0; i < 64; ++i) {

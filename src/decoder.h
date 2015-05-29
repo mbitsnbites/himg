@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "downsampled.h"
+#include "quantize.h"
 
 namespace himg {
 
@@ -31,12 +32,13 @@ class Decoder {
 
  private:
   bool DecodeHeader();
-  bool DecodeQuantizationTable();
+  bool DecodeQuantizationConfig();
   bool DecodeLowRes();
   bool DecodeFullRes();
 
   bool UncompressData(uint8_t *out, int out_size);
 
+  Quantize m_quantize;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_unpacked_data;
 
@@ -48,7 +50,6 @@ class Decoder {
   int m_height;
   int m_num_channels;
   bool m_use_ycbcr;
-  uint8_t m_quant_table[64];
 };
 
 }  // namespace himg

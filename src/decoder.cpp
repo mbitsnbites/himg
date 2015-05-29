@@ -92,8 +92,8 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
   }
 
   // Quantization table.
-  if (!DecodeQuantizationTable()) {
-    std::cout << "Error decoding quantization table.\n";
+  if (!DecodeQuantizationConfig()) {
+    std::cout << "Error decoding quantization configuration.\n";
     return false;
   }
 
@@ -144,29 +144,22 @@ bool Decoder::DecodeHeader() {
   return true;
 }
 
-bool Decoder::DecodeQuantizationTable() {
-  // The quantization table is RLE encoded (we could do even better, but this
-  // typically takes less than 10 bytes, so...).
-  uint16_t table_idx = 0;
-  for (int i = 0; i < 64 && m_packed_idx < m_packed_size - 1;) {
-    uint8_t x = m_packed_data[m_packed_idx++];
-    int count = static_cast<int>(m_packed_data[m_packed_idx++]);
-    i += count;
-    for (; count > 0 && table_idx < 64; --count) {
-      m_quant_table[kIndexLUT[table_idx++]] = x;
-    }
-    if (count > 0)
-      return false;
-  }
+bool Decoder::DecodeQuantizationConfig() {
+  // Get the quantization configuration size.
+  int config_size = static_cast<int>(m_packed_data[m_packed_idx]) |
+                    (static_cast<int>(m_packed_data[m_packed_idx + 1]) << 8) |
+                    (static_cast<int>(m_packed_data[m_packed_idx + 2]) << 16) |
+                    (static_cast<int>(m_packed_data[m_packed_idx + 3]) << 24);
+  m_packed_idx += 4;
+  if (m_packed_idx + config_size > m_packed_size)
+    return false;
 
-  for (int i = 0; i < 8; ++i) {
-    for (int j = 0; j < 8; ++j) {
-      std::cout << static_cast<int>(m_quant_table[i * 8 + j]) << " ";
-    }
-    std::cout << "\n";
-  }
+  // Restore the configuration.
+  if (!m_quantize.SetConfiguration(&m_packed_data[m_packed_idx], config_size))
+    return false;
+  m_packed_idx += config_size;
 
-  return table_idx == 64;
+  return true;
 }
 
 bool Decoder::DecodeLowRes() {
@@ -237,7 +230,7 @@ bool Decoder::DecodeFullRes() {
 
         // De-quantize.
         int16_t buf1[64];
-        Quantize::Unpack(buf1, packed, m_quant_table);
+        m_quantize.Unpack(buf1, packed);
 
         // Inverse transform.
         int16_t buf0[64];

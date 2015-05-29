@@ -9,6 +9,7 @@
 #include "quantize.h"
 
 #include <algorithm>
+#include <iostream>
 
 namespace himg {
 
@@ -46,7 +47,122 @@ const int16_t kDelinearizeTable[128] = {
   5000
 };
 
-uint8_t ToSignedMagnitude(int16_t abs_x, bool negative) {
+}  // namespace
+
+void Quantize::InitForQuality(uint8_t quality) {
+  if (quality > 9)
+    quality = 9;
+
+  // Create the quantization table.
+  for (int i = 0; i < 64; ++i) {
+    int16_t shift = static_cast<int16_t>(kQuantTable[i]) - quality;
+    m_shift_table[i] =
+        shift >= 0 ? (shift <= 16 ? static_cast<uint8_t>(shift) : 16) : 0;
+  }
+
+  // Create the delinearization table.
+  // TODO(m): Base this on the quantization table.
+  for (int i = 0; i < 128; ++i)
+    m_delinearization_table[i] = kDelinearizeTable[i];
+}
+
+void Quantize::Pack(uint8_t *out, const int16_t *in) {
+  for (int i = 0; i < 64; ++i) {
+    uint8_t shift = m_shift_table[i];
+    int16_t x = *in++;
+    bool negative = x < 0;
+    // NOTE: We can not just shift negative numbers, since that will never
+    // produce zero (e.g. -5 >> 7 == -1), so we shift the absolute value and
+    // keep track of the sign.
+    *out++ = ToSignedMagnitude((negative ? -x : x) >> shift, negative);
+  }
+}
+
+void Quantize::Unpack(int16_t *out, const uint8_t *in) {
+  for (int i = 0; i < 64; ++i) {
+    uint8_t shift = m_shift_table[i];
+    *out++ = FromSignedMagnitude(*in++) << shift;
+  }
+}
+
+int Quantize::ConfigurationSize() const {
+  // The shift table requires 4 bits per entry, and there are 64 entries.
+  int size = 64 / 2;
+
+  // The delinearization table requires one byte that tells how many items can
+  // be represented with a single byte, plus the actual single- and double-byte
+  // items.
+  int single_byte_items = NumberOfSingleByteDelinearizationItems();
+  size += 1 + single_byte_items + 2 * (128 - single_byte_items);
+
+  return size;
+}
+
+// Get the quantization configuration.
+void Quantize::GetConfiguration(uint8_t *out) {
+  // Store the shift table, four bits per entry.
+  for (int i = 0; i < 32; ++i)
+    *out++ = (m_shift_table[i * 2] << 4) | m_shift_table[i * 2 + 1];
+
+  // Store the delinearization table.
+  int single_byte_items = NumberOfSingleByteDelinearizationItems();
+  *out++ = static_cast<uint8_t>(single_byte_items);
+  int i;
+  for (i = 0; i < single_byte_items; ++i)
+    *out++ = static_cast<uint8_t>(m_delinearization_table[i]);
+  for (; i < 128; ++i) {
+    uint16_t x = m_delinearization_table[i];
+    *out++ = static_cast<uint8_t>(x & 255);
+    *out++ = static_cast<uint8_t>(x >> 8);
+  }
+}
+
+// Set the quantization configuration.
+bool Quantize::SetConfiguration(const uint8_t *in, int config_size) {
+  // Restore the shift table, four bits per entry.
+  if (config_size < 32)
+    return false;
+  for (int i = 0; i < 32; ++i) {
+    uint8_t x = *in++;
+    m_shift_table[i * 2] = x >> 4;
+    m_shift_table[i * 2 + 1] = x & 15;
+  }
+
+  // Restore the delinearization table.
+  int single_byte_items = static_cast<int>(*in++);
+  int actual_size = 32 + 1 + single_byte_items + 2 * (128 - single_byte_items);
+  if (actual_size != config_size)
+    return false;
+  int i;
+  for (i = 0; i < single_byte_items; ++i)
+    m_delinearization_table[i] = static_cast<uint16_t>(*in++);
+  for (; i < 128; ++i) {
+    m_delinearization_table[i] =
+        static_cast<uint16_t>(in[0]) | (static_cast<uint16_t>(in[1]) << 8);
+    in += 2;
+  }
+
+  std::cout << "Quantization shift table:\n";
+  for (int i = 0; i < 8; ++i) {
+    for (int j = 0; j < 8; ++j) {
+      std::cout << static_cast<int>(m_shift_table[i * 8 + j]) << " ";
+    }
+    std::cout << "\n";
+  }
+
+  return true;
+}
+
+int Quantize::NumberOfSingleByteDelinearizationItems() const {
+  int single_byte_items;
+  for (single_byte_items = 0; single_byte_items < 128; ++single_byte_items) {
+    if (m_delinearization_table[single_byte_items] >= 256)
+      break;
+  }
+  return single_byte_items;
+}
+
+uint8_t Quantize::ToSignedMagnitude(int16_t abs_x, bool negative) {
   // Special case: zero (it's quite common).
   if (!abs_x) {
     return 0;
@@ -56,11 +172,12 @@ uint8_t ToSignedMagnitude(int16_t abs_x, bool negative) {
   // TODO(m): Do binary search.
   uint8_t code;
   for (code = 0; code <= 127; ++code) {
-    if (abs_x <= kDelinearizeTable[code])
+    if (abs_x <= m_delinearization_table[code])
       break;
   }
   if (code > 0 && code < 128) {
-    if (abs_x - kDelinearizeTable[code - 1] < kDelinearizeTable[code] - abs_x)
+    if (abs_x - m_delinearization_table[code - 1] <
+        m_delinearization_table[code] - abs_x)
       code--;
   }
 
@@ -71,47 +188,16 @@ uint8_t ToSignedMagnitude(int16_t abs_x, bool negative) {
     return code <= 126 ? ((code + 1) << 1) : 254;
 }
 
-int16_t FromSignedMagnitude(uint8_t x) {
+int16_t Quantize::FromSignedMagnitude(uint8_t x) {
   // Special case: zero (it's quite common).
   if (!x) {
     return 0;
   }
 
   if (x & 1)
-    return -kDelinearizeTable[x >> 1];
+    return -m_delinearization_table[x >> 1];
   else
-    return kDelinearizeTable[(x >> 1) - 1];
-}
-
-}  // namespace
-
-void Quantize::MakeTable(uint8_t *table, uint8_t quality) {
-  if (quality > 9)
-    quality = 9;
-  for (int i = 0; i < 64; ++i) {
-    int16_t shift = static_cast<int16_t>(kQuantTable[i]) - quality;
-    table[i] =
-        shift >= 0 ? (shift <= 16 ? static_cast<uint8_t>(shift) : 16) : 0;
-  }
-}
-
-void Quantize::Pack(uint8_t *out, const int16_t *in, const uint8_t *table) {
-  for (int i = 0; i < 64; ++i) {
-    uint8_t shift = *table++;
-    int16_t x = *in++;
-    bool negative = x < 0;
-    // NOTE: We can not just shift negative numbers, since that will never
-    // produce zero (e.g. -5 >> 7 == -1), so we shift the absolute value and
-    // keep track of the sign.
-    *out++ = ToSignedMagnitude((negative ? -x : x) >> shift, negative);
-  }
-}
-
-void Quantize::Unpack(int16_t *out, const uint8_t *in, const uint8_t *table) {
-  for (int i = 0; i < 64; ++i) {
-    uint8_t shift = *table++;
-    *out++ = FromSignedMagnitude(*in++) << shift;
-  }
+    return m_delinearization_table[(x >> 1) - 1];
 }
 
 }  // namespace himg

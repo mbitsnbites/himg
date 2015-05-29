@@ -15,13 +15,31 @@ namespace himg {
 
 class Quantize {
  public:
-  static void MakeTable(uint8_t *table, uint8_t quality);
+  // Initialize quantization data for a given quality level (0-9).
+  void InitForQuality(uint8_t quality);
 
   // Pack to clamped signed magnitude based on the shift table.
-  static void Pack(uint8_t *out, const int16_t *in, const uint8_t *table);
+  void Pack(uint8_t *out, const int16_t *in);
 
   // Unpack to 16-bit twos complement based on the shift table.
-  static void Unpack(int16_t *out, const uint8_t *in, const uint8_t *table);
+  void Unpack(int16_t *out, const uint8_t *in);
+
+  // Get the required size of the quantization configuration (in bytes).
+  int ConfigurationSize() const;
+
+  // Get the quantization configuration.
+  void GetConfiguration(uint8_t *out);
+
+  // Set the quantization configuration.
+  bool SetConfiguration(const uint8_t *in, int config_size);
+
+ private:
+  int NumberOfSingleByteDelinearizationItems() const;
+  uint8_t ToSignedMagnitude(int16_t abs_x, bool negative);
+  int16_t FromSignedMagnitude(uint8_t x);
+
+  uint8_t m_shift_table[64];
+  uint16_t m_delinearization_table[128];
 };
 
 }  // namespace himg
