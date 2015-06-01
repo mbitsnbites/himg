@@ -16,7 +16,7 @@
 
 namespace {
 
-const int kDefaultQuality = 3;
+const int kDefaultQuality = 230;  // 0 = min quality, 255 = max quality.
 const bool kUseYCbCr = true;
 const int kNumChannels = 3;
 

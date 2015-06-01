@@ -101,11 +101,13 @@ bool Encoder::Encode(const uint8_t *data,
                      bool use_ycbcr) {
   m_packed_data.clear();
 
+  m_use_ycbcr = use_ycbcr;
+
   // This is a RIFF file.
   EncodeRIFFStart();
 
   // Header data.
-  EncodeHeader(width, height, num_channels, use_ycbcr);
+  EncodeHeader(width, height, num_channels);
 
   // Generate the quantization configuration.
   m_quantize.InitForQuality(quality);
@@ -114,7 +116,7 @@ bool Encoder::Encode(const uint8_t *data,
   // Optionally convert to YCrCb.
   const uint8_t *color_space_data = data;
   std::vector<uint8_t> ycbcr_data;
-  if (use_ycbcr) {
+  if (m_use_ycbcr) {
     ycbcr_data.resize(width * height * pixel_stride);
     RGBToYCrCb(
         ycbcr_data.data(), data, width, height, pixel_stride, num_channels);
@@ -163,8 +165,7 @@ void Encoder::UpdateRIFFStart() {
 
 void Encoder::EncodeHeader(int width,
                            int height,
-                           int num_channels,
-                           bool use_ycrcb) {
+                           int num_channels) {
   const int header_size = 11;
   m_packed_data.reserve(m_packed_data.size() + 8 + header_size);
 
@@ -188,7 +189,7 @@ void Encoder::EncodeHeader(int width,
   m_packed_data.push_back((height >> 16) & 255);
   m_packed_data.push_back((height >> 24) & 255);
   m_packed_data.push_back(num_channels);
-  m_packed_data.push_back(use_ycrcb ? 1 : 0);  // Color space (RGB / YCbCr).
+  m_packed_data.push_back(m_use_ycbcr ? 1 : 0);  // Color space (RGB / YCbCr).
 }
 
 void Encoder::EncodeQuantizationConfig() {
@@ -270,6 +271,8 @@ void Encoder::EncodeFullRes(const uint8_t *data,
       // Get the low-res (divided by 8x8) image for this channel.
       Downsampled &downsampled = m_downsampled[chan];
 
+      bool is_chroma_channel = m_use_ycbcr && (chan == 1 || chan == 2);
+
       for (int x = 0; x < width; x += 8) {
         // Horizontal block coordinate (u).
         int u = x >> 3;
@@ -301,7 +304,7 @@ void Encoder::EncodeFullRes(const uint8_t *data,
 
         // Quantize.
         uint8_t packed[64];
-        m_quantize.Pack(packed, buf1);
+        m_quantize.Pack(packed, buf1, is_chroma_channel);
 
         // Store quantized data in the unpacked buffer.
         for (int i = 0; i < 64; ++i) {

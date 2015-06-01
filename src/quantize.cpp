@@ -15,15 +15,28 @@ namespace himg {
 
 namespace {
 
-const uint8_t kQuantTable[64] = {
-  8, 7, 7, 8, 9, 9, 10, 10,
-  8, 8, 8, 8, 9, 10, 10, 10,
-  8, 8, 8, 8, 9, 10, 10, 10,
-  8, 8, 8, 9, 10, 11, 10, 10,
-  8, 8, 9, 10, 10, 11, 11, 10,
-  9, 9, 10, 10, 10, 11, 11, 11,
-  9, 10, 10, 10, 11, 11, 11, 11,
-  10, 10, 10, 11, 11, 11, 11, 11
+// Note: Shamelessly borrowed from libjpeg 6a (needs tuning).
+const uint8_t kShiftTableBase[64] = {
+  16, 11, 10, 16, 24, 40, 51, 61,
+  12, 12, 14, 19, 26, 58, 60, 55,
+  14, 13, 16, 24, 40, 57, 69, 56,
+  14, 17, 22, 29, 51, 87, 80, 62,
+  18, 22, 37, 56, 68, 109, 103, 77,
+  24, 35, 55, 64, 81, 104, 113, 92,
+  49, 64, 78, 87, 103, 121, 120, 101,
+  72, 92, 95, 98, 112, 100, 103, 99
+};
+
+// Note: Inspired by libjpeg 6a.
+const uint8_t kChromaShiftTableBase[64] = {
+  17, 18, 24, 47, 100, 110, 115, 120,
+  18, 21, 26, 66, 100, 110, 118, 121,
+  24, 26, 56, 100, 100, 110, 120, 122,
+  47, 66, 100, 100, 100, 110, 120, 123,
+  100, 100, 100, 100, 100, 110, 120, 124,
+  110, 110, 110, 110, 110, 110, 110, 123,
+  120, 120, 120, 120, 120, 110, 100, 122,
+  124, 124, 126, 126, 125, 123, 122, 105
 };
 
 // This LUT is based on histogram studies.
@@ -47,11 +60,33 @@ const int16_t kDelinearizeTable[128] = {
   5000
 };
 
+uint8_t NearestLog2(uint16_t x) {
+  uint8_t y = 0, rounding = 0;
+  while (x > 1) {
+    ++y;
+    rounding = x & 1;
+    x = x >> 1;
+  }
+  return y + rounding;
+}
+
+void MakeShiftTable(
+    uint8_t *shift_table, const uint8_t *base, uint8_t quality) {
+  for (int i = 0; i < 64; ++i) {
+    // quality is in the range [0, 255].
+    uint16_t scale = (static_cast<uint16_t>(base[i]) *
+                      static_cast<uint16_t>(255 - quality) + 4) >> 3;
+    uint8_t shift = NearestLog2(scale);
+    shift_table[i] = shift <= 16 ? static_cast<uint8_t>(shift) : 16;
+  }
+}
+
 }  // namespace
 
 void Quantize::InitForQuality(uint8_t quality) {
-  if (quality > 9)
-    quality = 9;
+  // Create the shift table.
+  MakeShiftTable(m_shift_table, kShiftTableBase, quality);
+  MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
 
   // Create the quantization table.
   for (int i = 0; i < 64; ++i) {
@@ -61,14 +96,18 @@ void Quantize::InitForQuality(uint8_t quality) {
   }
 
   // Create the delinearization table.
-  // TODO(m): Base this on the quantization table.
+  // TODO(m): Base this on the shift table.
   for (int i = 0; i < 128; ++i)
     m_delinearization_table[i] = kDelinearizeTable[i];
 }
 
-void Quantize::Pack(uint8_t *out, const int16_t *in) {
+void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
+  // Select which shift table to use.
+  const uint8_t *shift_table =
+      chroma_channel ? m_chroma_shift_table : m_shift_table;
+
   for (int i = 0; i < 64; ++i) {
-    uint8_t shift = m_shift_table[i];
+    uint8_t shift = shift_table[i];
     int16_t x = *in++;
     bool negative = x < 0;
     // NOTE: We can not just shift negative numbers, since that will never
@@ -78,16 +117,20 @@ void Quantize::Pack(uint8_t *out, const int16_t *in) {
   }
 }
 
-void Quantize::Unpack(int16_t *out, const uint8_t *in) {
+void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
+  // Select which shift table to use.
+  const uint8_t *shift_table =
+      chroma_channel ? m_chroma_shift_table : m_shift_table;
+
   for (int i = 0; i < 64; ++i) {
-    uint8_t shift = m_shift_table[i];
+    uint8_t shift = shift_table[i];
     *out++ = FromSignedMagnitude(*in++) << shift;
   }
 }
 
 int Quantize::ConfigurationSize() const {
-  // The shift table requires 4 bits per entry, and there are 64 entries.
-  int size = 64 / 2;
+  // The shift tables requires 4 bits per entry, and there are 2 * 64 entries.
+  int size = 2 * 32;
 
   // The delinearization table requires one byte that tells how many items can
   // be represented with a single byte, plus the actual single- and double-byte
@@ -104,6 +147,11 @@ void Quantize::GetConfiguration(uint8_t *out) {
   for (int i = 0; i < 32; ++i)
     *out++ = (m_shift_table[i * 2] << 4) | m_shift_table[i * 2 + 1];
 
+  // Store the chroma channel shift table, four bits per entry.
+  for (int i = 0; i < 32; ++i)
+    *out++ =
+        (m_chroma_shift_table[i * 2] << 4) | m_chroma_shift_table[i * 2 + 1];
+
   // Store the delinearization table.
   int single_byte_items = NumberOfSingleByteDelinearizationItems();
   *out++ = static_cast<uint8_t>(single_byte_items);
@@ -119,18 +167,26 @@ void Quantize::GetConfiguration(uint8_t *out) {
 
 // Set the quantization configuration.
 bool Quantize::SetConfiguration(const uint8_t *in, int config_size) {
-  // Restore the shift table, four bits per entry.
-  if (config_size < 32)
+  if (config_size < 64)
     return false;
+
+  // Restore the shift table, four bits per entry.
   for (int i = 0; i < 32; ++i) {
     uint8_t x = *in++;
     m_shift_table[i * 2] = x >> 4;
     m_shift_table[i * 2 + 1] = x & 15;
   }
 
+  // Restore the chroma shift table, four bits per entry.
+  for (int i = 0; i < 32; ++i) {
+    uint8_t x = *in++;
+    m_chroma_shift_table[i * 2] = x >> 4;
+    m_chroma_shift_table[i * 2 + 1] = x & 15;
+  }
+
   // Restore the delinearization table.
   int single_byte_items = static_cast<int>(*in++);
-  int actual_size = 32 + 1 + single_byte_items + 2 * (128 - single_byte_items);
+  int actual_size = 64 + 1 + single_byte_items + 2 * (128 - single_byte_items);
   if (actual_size != config_size)
     return false;
   int i;

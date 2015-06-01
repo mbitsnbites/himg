@@ -36,7 +36,7 @@ class Encoder {
  private:
   void EncodeRIFFStart();
   void UpdateRIFFStart();
-  void EncodeHeader(int width, int height, int num_channels, bool use_ycrcb);
+  void EncodeHeader(int width, int height, int num_channels);
   void EncodeQuantizationConfig();
   void EncodeLowRes(const uint8_t *data,
                     int width,
@@ -51,6 +51,7 @@ class Encoder {
 
   int AppendPackedData(const uint8_t *unpacked_data, int unpacked_size);
 
+  bool m_use_ycbcr;
   Quantize m_quantize;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_packed_data;

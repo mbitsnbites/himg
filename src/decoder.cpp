@@ -262,6 +262,8 @@ bool Decoder::DecodeFullRes() {
       // Get the low-res (divided by 8x8) image for this channel.
       Downsampled &downsampled = m_downsampled[chan];
 
+      bool is_chroma_channel = m_use_ycbcr && (chan == 1 || chan == 2);
+
       for (int x = 0; x < m_width; x += 8) {
         // Horizontal block coordinate (u).
         int u = x >> 3;
@@ -276,7 +278,7 @@ bool Decoder::DecodeFullRes() {
 
         // De-quantize.
         int16_t buf1[64];
-        m_quantize.Unpack(buf1, packed);
+        m_quantize.Unpack(buf1, packed, is_chroma_channel);
 
         // Inverse transform.
         int16_t buf0[64];
