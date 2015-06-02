@@ -88,13 +88,6 @@ void Quantize::InitForQuality(uint8_t quality) {
   MakeShiftTable(m_shift_table, kShiftTableBase, quality);
   MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
 
-  // Create the quantization table.
-  for (int i = 0; i < 64; ++i) {
-    int16_t shift = static_cast<int16_t>(kQuantTable[i]) - quality;
-    m_shift_table[i] =
-        shift >= 0 ? (shift <= 16 ? static_cast<uint8_t>(shift) : 16) : 0;
-  }
-
   // Create the delinearization table.
   // TODO(m): Base this on the shift table.
   for (int i = 0; i < 128; ++i)
