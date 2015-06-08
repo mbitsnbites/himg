@@ -27,22 +27,24 @@ void Downsampled::SampleImage(const uint8_t *pixels,
   std::vector<uint8_t> average;
   average.reserve(m_rows * m_columns);
   for (int v = 0; v < m_rows; ++v) {
-    int y_count = std::min(8, height - v * 8);
+    int y_min = std::max(0, v * 8 - 3);
+    int y_max = std::min(height - 1, v * 8 + 4);
     for (int u = 0; u < m_columns; ++u) {
-      int x_count = std::min(8, width - u * 8);
+      int x_min = std::max(0, u * 8 - 3);
+      int x_max = std::min(width - 1, u * 8 + 4);
       uint16_t sum = 0;
-      for (int y = 0; y < y_count; ++y) {
-        for (int x = 0; x < x_count; ++x) {
-          sum += pixels[((v * 8 + y) * width + u * 8 + x) * stride];
+      for (int y = y_min; y <= y_max; ++y) {
+        for (int x = x_min; x <= x_max; ++x) {
+          sum += pixels[(y * width + x) * stride];
         }
       }
-      int total_count = x_count * y_count;
+      int total_count = (x_max - x_min + 1) * (y_max - y_min + 1);
       average.push_back(
           static_cast<uint8_t>((sum + (total_count >> 1)) / total_count));
     }
   }
 
-  // Compensate blocks for lienear interpolation (phase shift 7/16 pixels up /
+  // Compensate blocks for lienear interpolation (phase shift 1/16 pixels up &
   // to the left).
   m_data.reserve(m_columns * m_rows);
   for (int v = 0; v < m_rows; ++v) {
@@ -55,9 +57,9 @@ void Downsampled::SampleImage(const uint8_t *pixels,
       uint16_t x12 = static_cast<uint16_t>(average[row1 * m_columns + col2]);
       uint16_t x21 = static_cast<uint16_t>(average[row2 * m_columns + col1]);
       uint16_t x22 = static_cast<uint16_t>(average[row2 * m_columns + col2]);
-      uint16_t a1 = (7 * x11 + 9 * x12 + 8) >> 4;
-      uint16_t a2 = (7 * x21 + 9 * x22 + 8) >> 4;
-      m_data.push_back(static_cast<uint8_t>((7 * a1 + 9 * a2 + 8) >> 4));
+      uint16_t a1 = (1 * x11 + 15 * x12 + 8) >> 4;
+      uint16_t a2 = (1 * x21 + 15 * x22 + 8) >> 4;
+      m_data.push_back(static_cast<uint8_t>((1 * a1 + 15 * a2 + 8) >> 4));
     }
   }
 }
