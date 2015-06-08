@@ -74,10 +74,11 @@ void MakeShiftTable(
     uint8_t *shift_table, const uint8_t *base, uint8_t quality) {
   for (int i = 0; i < 64; ++i) {
     // quality is in the range [0, 255].
+    // TODO(m): Try to do a more linear quality -> file size mapping.
     uint16_t scale = (static_cast<uint16_t>(base[i]) *
                       static_cast<uint16_t>(255 - quality) + 4) >> 3;
     uint8_t shift = NearestLog2(scale);
-    shift_table[i] = shift <= 16 ? static_cast<uint8_t>(shift) : 16;
+    shift_table[i] = shift <= 15 ? static_cast<uint8_t>(shift) : 15;
   }
 }
 
@@ -122,7 +123,7 @@ void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
 }
 
 int Quantize::ConfigurationSize() const {
-  // The shift tables requires 4 bits per entry, and there are 2 * 64 entries.
+  // The shift tables require 4 bits per entry, and there are 2 * 64 entries.
   int size = 2 * 32;
 
   // The delinearization table requires one byte that tells how many items can
@@ -160,7 +161,7 @@ void Quantize::GetConfiguration(uint8_t *out) {
 
 // Set the quantization configuration.
 bool Quantize::SetConfiguration(const uint8_t *in, int config_size) {
-  if (config_size < 64)
+  if (config_size < 65)
     return false;
 
   // Restore the shift table, four bits per entry.
