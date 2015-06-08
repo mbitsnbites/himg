@@ -35,8 +35,8 @@ class Quantize {
 
  private:
   int NumberOfSingleByteDelinearizationItems() const;
-  uint8_t ToSignedMagnitude(int16_t abs_x, bool negative);
-  int16_t FromSignedMagnitude(uint8_t x);
+  uint8_t Delinearize(int16_t abs_x, bool negative);
+  int16_t Linearize(uint8_t x);
 
   uint8_t m_shift_table[64];
   uint8_t m_chroma_shift_table[64];

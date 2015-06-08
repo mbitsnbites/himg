@@ -105,12 +105,14 @@ void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
 
   for (int i = 0; i < 64; ++i) {
     uint8_t shift = shift_table[i];
+    int16_t round = shift != 0 ? 1 << (shift - 1) : 0;
+
     int16_t x = *in++;
     bool negative = x < 0;
     // NOTE: We can not just shift negative numbers, since that will never
     // produce zero (e.g. -5 >> 7 == -1), so we shift the absolute value and
     // keep track of the sign.
-    *out++ = ToSignedMagnitude((negative ? -x : x) >> shift, negative);
+    *out++ = Delinearize(((negative ? -x : x) + round) >> shift, negative);
   }
 }
 
@@ -121,7 +123,7 @@ void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
 
   for (int i = 0; i < 64; ++i) {
     uint8_t shift = shift_table[i];
-    *out++ = FromSignedMagnitude(*in++) << shift;
+    *out++ = Linearize(*in++) << shift;
   }
 }
 
@@ -215,7 +217,7 @@ int Quantize::NumberOfSingleByteDelinearizationItems() const {
   return single_byte_items;
 }
 
-uint8_t Quantize::ToSignedMagnitude(int16_t abs_x, bool negative) {
+uint8_t Quantize::Delinearize(int16_t abs_x, bool negative) {
   // Special case: zero (it's quite common).
   if (!abs_x) {
     return 0;
@@ -228,8 +230,10 @@ uint8_t Quantize::ToSignedMagnitude(int16_t abs_x, bool negative) {
     if (abs_x <= m_delinearization_table[code])
       break;
   }
-  if (code > 0 && code < 128) {
-    if (abs_x - m_delinearization_table[code - 1] <
+
+  // Round to the closest match.
+  if (code >= 1 && code <= 127) {
+    if (abs_x - m_delinearization_table[code - 1] <=
         m_delinearization_table[code] - abs_x)
       code--;
   }
@@ -241,7 +245,7 @@ uint8_t Quantize::ToSignedMagnitude(int16_t abs_x, bool negative) {
     return code <= 126 ? ((code + 1) << 1) : 254;
 }
 
-int16_t Quantize::FromSignedMagnitude(uint8_t x) {
+int16_t Quantize::Linearize(uint8_t x) {
   // Special case: zero (it's quite common).
   if (!x) {
     return 0;
