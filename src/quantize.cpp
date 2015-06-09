@@ -133,7 +133,7 @@ void MakeShiftTable(uint8_t *shift_table,
     uint16_t coeff_scale =
         (static_cast<int>(base[i]) * table_scale + 512) >> 10;
     uint8_t shift = NearestLog2(coeff_scale);
-    shift_table[i] = shift <= 15 ? static_cast<uint8_t>(shift) : 15;
+    shift_table[i] = std::min(shift, uint8_t(15));
   }
 }
 
