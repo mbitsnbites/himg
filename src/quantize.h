@@ -15,7 +15,7 @@ namespace himg {
 
 class Quantize {
  public:
-  // Initialize quantization data for a given quality level (0-9).
+  // Initialize quantization data for a given quality level (0-100).
   void InitForQuality(uint8_t quality);
 
   // Pack to clamped signed magnitude based on the shift table.
