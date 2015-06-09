@@ -19,7 +19,7 @@
 
 namespace {
 
-const int kDefaultQuality = 230;  // 0 = min quality, 255 = max quality.
+const int kDefaultQuality = 90;  // 0 = min quality, 100 = max quality.
 const int kNumChannels = 3;
 
 bool ArgToInt(const char *arg, int *result) {
@@ -55,7 +55,7 @@ struct Options {
           use_ycbcr = false;
         } else if (std::strcmp(arg, "-q") == 0) {
           if (k + 1 < argc && ArgToInt(argv[++k], &quality)) {
-            success = quality >= 0 && quality <= 255;
+            success = quality >= 0 && quality <= 100;
             if (!success)
               std::cout << "Invalid quality level: " << quality << "\n";
           } else {
@@ -74,7 +74,7 @@ struct Options {
     if (!success || file_names.size() != 2) {
       std::cout << "Usage: " << argv[0] << " [options] image outfile\n";
       std::cout << "Options:\n";
-      std::cout << " -q <quality> Set the quality (0-255)\n";
+      std::cout << " -q <quality> Set the quality (0-100)\n";
       std::cout << " -rgb         Use RGB color space (instead of YCbCr)\n";
       return false;
     }

@@ -40,10 +40,10 @@ const uint8_t kChromaShiftTableBase[64] = {
 };
 
 // This LUT is based on histogram studies. It is designed to give five bits of
-// precision in the range 0-50 (where almost all coefficients can be
-// represented), and above that it gives about four bits of precision (this
-// makes slightly better use of the eight bits compared to a corresponding
-// floating point representation, for instance).
+// precision (i.e. full precision) in the range 0-50, where almost all
+// coefficients can be represented, and above that it gives about four bits of
+// precision (this makes slightly better use of the eight bits compared to a
+// corresponding floating point representation, for instance).
 const int16_t kDelinearizeTable[128] = {
   1, 2, 3, 4, 5, 6, 7, 8,
   9, 10, 11, 12, 13, 14, 15, 16,
@@ -63,6 +63,58 @@ const int16_t kDelinearizeTable[128] = {
   5740, 6078, 6433, 6806, 7198, 7608, 8039
 };
 
+struct QualityScale {
+  int quality;
+  int scale;
+};
+
+// This table has been tuned so that there is a relatively continuous increase
+// in the resulting compressed image size based on the quality setting. For most
+// images, the following quality regions apply:
+//   0 - 20: Ugly and mostly pretty useless.
+//  20 - 40: Useful for quick looks / previews.
+//  40 - 60: Decent quality.
+//  60 - 90: Nice quality.
+//  90 - 100: Crazy size growth (generally not worth it).
+const QualityScale kQualityToScaleTable[] = {
+  {   0, 65535 },
+  {  10, 32512 },
+  {  20, 13568 },
+  {  30,  5120 },
+  {  40,  2560 },
+  {  50,  1024 },
+  {  60,   768 },
+  {  80,   256 },
+  { 100,     0 }
+};
+
+const int kQualityToScaleTableSize =
+    sizeof(kQualityToScaleTable) / sizeof(kQualityToScaleTable[0]);
+
+// Given a quality value in the range [0, 100], return a scaling factor in the
+// range [0, 65535], where 65535 represents the lowest possible quality.
+int QualityToScale(int quality) {
+  // Look up the quality level in the quality -> scaling factor LUT.
+  int idx;
+  for (idx = 0; idx < kQualityToScaleTableSize - 1; ++idx) {
+    if (kQualityToScaleTable[idx + 1].quality > quality)
+      break;
+  }
+  if (idx >= kQualityToScaleTableSize - 1)
+    return kQualityToScaleTable[kQualityToScaleTableSize - 1].scale;
+
+  // Pick out the two closest table entries.
+  int q1 = kQualityToScaleTable[idx].quality;
+  int s1 = kQualityToScaleTable[idx].scale;
+  int q2 = kQualityToScaleTable[idx + 1].quality;
+  int s2 = kQualityToScaleTable[idx + 1].scale;
+
+  // Perform linear interpolation between the two table entries.
+  int q = quality;
+  int denom = q2 - q1;
+  return s1 + ((s2 - s1) * (q - q1) + (denom >> 1)) / denom;
+}
+
 uint8_t NearestLog2(uint16_t x) {
   uint8_t y = 0, rounding = 0;
   while (x > 1) {
@@ -73,14 +125,14 @@ uint8_t NearestLog2(uint16_t x) {
   return y + rounding;
 }
 
-void MakeShiftTable(
-    uint8_t *shift_table, const uint8_t *base, uint8_t quality) {
+void MakeShiftTable(uint8_t *shift_table,
+                    const uint8_t *base,
+                    uint8_t quality) {
+  const int table_scale = QualityToScale(quality);
   for (int i = 0; i < 64; ++i) {
-    // quality is in the range [0, 255].
-    // TODO(m): Try to do a more linear quality -> file size mapping.
-    uint16_t scale = (static_cast<uint16_t>(base[i]) *
-                      static_cast<uint16_t>(255 - quality) + 4) >> 3;
-    uint8_t shift = NearestLog2(scale);
+    uint16_t coeff_scale =
+        (static_cast<int>(base[i]) * table_scale + 512) >> 10;
+    uint8_t shift = NearestLog2(coeff_scale);
     shift_table[i] = shift <= 15 ? static_cast<uint8_t>(shift) : 15;
   }
 }
