@@ -12,7 +12,7 @@ namespace himg {
 
 namespace {
 
-// A symbol is an 8-bit unigned number.
+// A symbol is a 9-bit unsigned number.
 typedef uint16_t Symbol;
 const int kSymbolSize = 9;
 const int kNumSymbols = 261;
@@ -320,15 +320,15 @@ int Huffman::Compress(uint8_t *out, const uint8_t *in, int in_size) {
 
   // Sort histogram - first symbol first (bubble sort).
   // TODO(m): Quick-sort.
-  int swaps;
+  bool swaps;
   do {
-    swaps = 0;
+    swaps = false;
     for (int k = 0; k < kNumSymbols - 1; ++k) {
       if (symbols[k].symbol > symbols[k + 1].symbol) {
         SymbolInfo tmp = symbols[k];
         symbols[k] = symbols[k + 1];
         symbols[k + 1] = tmp;
-        swaps = 1;
+        swaps = true;
       }
     }
   } while (swaps);
