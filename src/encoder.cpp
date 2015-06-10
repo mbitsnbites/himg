@@ -101,7 +101,7 @@ bool Encoder::Encode(const uint8_t *data,
                      bool use_ycbcr) {
   m_packed_data.clear();
 
-  m_use_ycbcr = use_ycbcr;
+  m_use_ycbcr = use_ycbcr && (num_channels >= 3);
 
   // This is a RIFF file.
   EncodeRIFFStart();

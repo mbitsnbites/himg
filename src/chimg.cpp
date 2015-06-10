@@ -19,8 +19,7 @@
 
 namespace {
 
-const int kDefaultQuality = 90;  // 0 = min quality, 100 = max quality.
-const int kNumChannels = 3;
+const int kDefaultQuality = 50;  // 0 = min quality, 100 = max quality.
 
 bool ArgToInt(const char *arg, int *result) {
   std::string arg_str(arg);
@@ -102,6 +101,7 @@ int main(int argc, const char **argv) {
   FreeImage_Initialise();
 
   // Load the source image using FreeImage.
+  int num_channels;
   FIBITMAP *bitmap;
   {
     FREE_IMAGE_FORMAT format = FreeImage_GetFileType(options.input_file);
@@ -116,8 +116,23 @@ int main(int argc, const char **argv) {
       return -1;
     }
 
-    // Convert the image to 32-bit RGBA.
-    bitmap = FreeImage_ConvertTo32Bits(bitmap_tmp);
+    // Determine (and optionally force) color format.
+    auto color_type = FreeImage_GetColorType(bitmap_tmp);
+    switch (color_type) {
+      case FIC_MINISBLACK:
+        num_channels = 1;
+        bitmap = FreeImage_ConvertToGreyscale(bitmap_tmp);
+        break;
+      case FIC_RGBALPHA:
+        num_channels = 4;
+        bitmap = FreeImage_ConvertTo32Bits(bitmap_tmp);
+        break;
+      default:
+        num_channels = 3;
+        bitmap = FreeImage_ConvertTo24Bits(bitmap_tmp);
+    }
+
+    // We're done with the temporary bitmap.
     FreeImage_Unload(bitmap_tmp);
   }
 
@@ -126,13 +141,12 @@ int main(int argc, const char **argv) {
   {
     int width = FreeImage_GetWidth(bitmap);
     int height = FreeImage_GetHeight(bitmap);
-    int pixel_stride = 4;
     uint8_t *data = reinterpret_cast<uint8_t *>(FreeImage_GetBits(bitmap));
     encoder.Encode(data,
                    width,
                    height,
-                   pixel_stride,
-                   kNumChannels,
+                   num_channels,  // Pixel stride.
+                   num_channels,
                    options.quality,
                    options.use_ycbcr);
   }
