@@ -46,6 +46,9 @@ dhimg.o: dhimg.cpp decoder.h
 common.o: common.cpp common.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
+decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman.h quantize.h
+	$(CPP) $(CPPFLAGS) -o $@ $<
+
 downsampled.o: downsampled.cpp downsampled.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
