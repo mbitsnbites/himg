@@ -25,7 +25,7 @@ int main(int argc, const char **argv) {
   {
     // Open file.
     std::ifstream f(argv[1], std::ifstream::in | std::ofstream::binary);
-    if (f.bad()) {
+    if (!f.good()) {
       std::cout << "Unable to read file " << argv[1] << std::endl;
       return -1;
     }
