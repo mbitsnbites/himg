@@ -16,6 +16,7 @@
 #include "hadamard.h"
 #include "huffman.h"
 #include "quantize.h"
+#include "ycbcr.h"
 
 namespace himg {
 
@@ -45,38 +46,6 @@ void RestoreChannelBlock(uint8_t *out,
     }
     in += 8 - block_width;
     out += row_stride - (pixel_stride * block_width);
-  }
-}
-
-void YCbCrToRGB(uint8_t *buf,
-                int width,
-                int height,
-                int num_channels) {
-  // We use a multiplier-less approximation:
-  //   Y  = (R + 2G + B) / 4
-  //   Cb = B - G
-  //   Cr = R - G
-  //
-  //   G = Y - (Cb + Cr) / 4
-  //   B = G + Cb
-  //   R = G + Cr
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      // Convert YCbCr -> RGB.
-      int16_t y = static_cast<int16_t>(buf[0]);
-      int16_t cb = (static_cast<int16_t>(buf[1]) << 1) - 255;
-      int16_t cr = (static_cast<int16_t>(buf[2]) << 1) - 255;
-      int16_t g = y - ((cb + cr + 2) >> 2);
-      int16_t b = g + cb;
-      int16_t r = g + cr;
-      buf[0] = ClampTo8Bit(r);
-      buf[1] = ClampTo8Bit(g);
-      buf[2] = ClampTo8Bit(b);
-
-      // Note: Remaining channels are kept as-is (e.g. alpha).
-
-      buf += num_channels;
-    }
   }
 }
 
@@ -307,7 +276,7 @@ bool Decoder::DecodeFullRes() {
     // Do YCbCr->RGB conversion for this block row if necessary.
     if (m_use_ycbcr) {
       uint8_t *buf = &m_unpacked_data[y * m_width * m_num_channels];
-      YCbCrToRGB(buf, m_width, block_height, m_num_channels);
+      YCbCr::YCbCrToRGB(buf, m_width, block_height, m_num_channels);
     }
   }
 

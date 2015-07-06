@@ -17,7 +17,8 @@ LIB_OBJS = common.o \
            encoder.o \
            hadamard.o \
            huffman.o \
-           quantize.o
+           quantize.o \
+           ycbcr.o
 
 ALL_OBJS = $(LIB_OBJS) chimg.o dhimg.o
 
@@ -46,13 +47,13 @@ dhimg.o: dhimg.cpp decoder.h
 common.o: common.cpp common.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman.h quantize.h
+decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman.h quantize.h ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 downsampled.o: downsampled.cpp downsampled.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-encoder.o: encoder.cpp common.h downsampled.h encoder.h hadamard.h huffman.h quantize.h
+encoder.o: encoder.cpp common.h downsampled.h encoder.h hadamard.h huffman.h quantize.h ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 hadamard.o: hadamard.cpp hadamard.h
@@ -62,5 +63,8 @@ huffman.o: huffman.cpp huffman.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 quantize.o: quantize.cpp quantize.h
+	$(CPP) $(CPPFLAGS) -o $@ $<
+
+ycbcr.o: ycbcr.cpp ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 

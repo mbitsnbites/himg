@@ -16,6 +16,7 @@
 #include "hadamard.h"
 #include "huffman.h"
 #include "quantize.h"
+#include "ycbcr.h"
 
 namespace himg {
 
@@ -45,44 +46,6 @@ void ExtractChannelBlock(int16_t *out,
     for (x = 0; x < 8; x++) {
       // We could do better here...
       *out++ = col;
-    }
-  }
-}
-
-void RGBToYCrCb(uint8_t *out,
-                const uint8_t *in,
-                int width,
-                int height,
-                int pixel_stride,
-                int num_channels) {
-  // We use a multiplier-less approximation:
-  //   Y  = (R + 2G + B) / 4
-  //   Cb = B - G
-  //   Cr = R - G
-  //
-  //   G = Y - (Cb + Cr) / 4
-  //   B = G + Cb
-  //   R = G + Cr
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      // Convert RGB -> YCbCr.
-      int16_t r = static_cast<int16_t>(in[0]);
-      int16_t g = static_cast<int16_t>(in[1]);
-      int16_t b = static_cast<int16_t>(in[2]);
-      int16_t y = (r + 2 * g + b + 2) >> 2;
-      int16_t cb = (b - g + 256) >> 1;
-      int16_t cr = (r - g + 256) >> 1;
-      out[0] = static_cast<uint8_t>(y);
-      out[1] = static_cast<uint8_t>(cb);
-      out[2] = static_cast<uint8_t>(cr);
-
-      // Append remaining channels as-is (e.g. alpha).
-      for (int chan = 3; chan < num_channels; ++chan) {
-        out[chan] = in[chan];
-      }
-
-      in += pixel_stride;
-      out += pixel_stride;
     }
   }
 }
@@ -118,7 +81,7 @@ bool Encoder::Encode(const uint8_t *data,
   std::vector<uint8_t> ycbcr_data;
   if (m_use_ycbcr) {
     ycbcr_data.resize(width * height * pixel_stride);
-    RGBToYCrCb(
+    YCbCr::RGBToYCbCr(
         ycbcr_data.data(), data, width, height, pixel_stride, num_channels);
     color_space_data = ycbcr_data.data();
   }
