@@ -51,6 +51,7 @@ class Encoder {
 
   int AppendPackedData(const uint8_t *unpacked_data, int unpacked_size);
 
+  int m_quality;
   bool m_use_ycbcr;
   Quantize m_quantize;
   std::vector<Downsampled> m_downsampled;

@@ -64,6 +64,7 @@ bool Encoder::Encode(const uint8_t *data,
                      bool use_ycbcr) {
   m_packed_data.clear();
 
+  m_quality = quality;
   m_use_ycbcr = use_ycbcr && (num_channels >= 3);
 
   // This is a RIFF file.
@@ -73,7 +74,7 @@ bool Encoder::Encode(const uint8_t *data,
   EncodeHeader(width, height, num_channels);
 
   // Generate the quantization configuration.
-  m_quantize.InitForQuality(quality);
+  m_quantize.InitForQuality(m_quality, m_use_ycbcr);
   EncodeQuantizationConfig();
 
   // Optionally convert to YCrCb.

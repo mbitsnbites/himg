@@ -94,6 +94,10 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
   return true;
 }
 
+bool Decoder::HasChroma() const {
+  return m_use_ycbcr && m_num_channels >= 3;
+}
+
 bool Decoder::DecodeRIFFStart() {
   if (m_packed_size < 12)
     return false;
@@ -164,7 +168,7 @@ bool Decoder::DecodeQuantizationConfig() {
   m_packed_idx += chunk_size;
 
   // Restore the configuration.
-  return m_quantize.SetConfiguration(chunk_data, chunk_size);
+  return m_quantize.SetConfiguration(chunk_data, chunk_size, HasChroma());
 }
 
 bool Decoder::DecodeLowRes() {
@@ -274,7 +278,7 @@ bool Decoder::DecodeFullRes() {
     }
 
     // Do YCbCr->RGB conversion for this block row if necessary.
-    if (m_use_ycbcr) {
+    if (HasChroma()) {
       uint8_t *buf = &m_unpacked_data[y * m_width * m_num_channels];
       YCbCr::YCbCrToRGB(buf, m_width, block_height, m_num_channels);
     }

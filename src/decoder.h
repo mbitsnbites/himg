@@ -31,6 +31,8 @@ class Decoder {
   int num_channels() const { return m_num_channels; }
 
  private:
+  bool HasChroma() const;
+
   bool DecodeRIFFStart();
   bool DecodeHeader();
   bool DecodeQuantizationConfig();

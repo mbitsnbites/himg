@@ -16,7 +16,7 @@ namespace himg {
 class Quantize {
  public:
   // Initialize quantization data for a given quality level (0-100).
-  void InitForQuality(uint8_t quality);
+  void InitForQuality(uint8_t quality, bool has_chroma);
 
   // Pack to clamped signed magnitude based on the shift table.
   void Pack(uint8_t *out, const int16_t *in, bool chroma_channel);
@@ -31,13 +31,14 @@ class Quantize {
   void GetConfiguration(uint8_t *out);
 
   // Set the quantization configuration.
-  bool SetConfiguration(const uint8_t *in, int config_size);
+  bool SetConfiguration(const uint8_t *in, int config_size, bool has_chroma);
 
  private:
   int NumberOfSingleByteDelinearizationItems() const;
   uint8_t Delinearize(int16_t abs_x, bool negative);
   int16_t Linearize(uint8_t x);
 
+  bool m_has_chroma;
   uint8_t m_shift_table[64];
   uint8_t m_chroma_shift_table[64];
   uint16_t m_delinearization_table[128];

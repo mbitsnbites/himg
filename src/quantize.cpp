@@ -139,10 +139,13 @@ void MakeShiftTable(uint8_t *shift_table,
 
 }  // namespace
 
-void Quantize::InitForQuality(uint8_t quality) {
+void Quantize::InitForQuality(uint8_t quality, bool has_chroma) {
+  m_has_chroma = has_chroma;
+
   // Create the shift table.
   MakeShiftTable(m_shift_table, kShiftTableBase, quality);
-  MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
+  if (m_has_chroma)
+    MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
 
   // Create the delinearization table.
   // TODO(m): Base this on the shift table.
@@ -180,8 +183,11 @@ void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
 }
 
 int Quantize::ConfigurationSize() const {
-  // The shift tables require 4 bits per entry, and there are 2 * 64 entries.
-  int size = 2 * 32;
+  // The shift tables require 4 bits per entry, and there are 64 entries per
+  // table.
+  int size = 32;
+  if (m_has_chroma)
+    size += 32;
 
   // The delinearization table requires one byte that tells how many items can
   // be represented with a single byte, plus the actual single- and double-byte
@@ -198,10 +204,12 @@ void Quantize::GetConfiguration(uint8_t *out) {
   for (int i = 0; i < 32; ++i)
     *out++ = (m_shift_table[i * 2] << 4) | m_shift_table[i * 2 + 1];
 
-  // Store the chroma channel shift table, four bits per entry.
-  for (int i = 0; i < 32; ++i)
-    *out++ =
-        (m_chroma_shift_table[i * 2] << 4) | m_chroma_shift_table[i * 2 + 1];
+  if (m_has_chroma) {
+    // Store the chroma channel shift table, four bits per entry.
+    for (int i = 0; i < 32; ++i)
+      *out++ =
+          (m_chroma_shift_table[i * 2] << 4) | m_chroma_shift_table[i * 2 + 1];
+  }
 
   // Store the delinearization table.
   int single_byte_items = NumberOfSingleByteDelinearizationItems();
@@ -217,8 +225,12 @@ void Quantize::GetConfiguration(uint8_t *out) {
 }
 
 // Set the quantization configuration.
-bool Quantize::SetConfiguration(const uint8_t *in, int config_size) {
-  if (config_size < 65)
+bool Quantize::SetConfiguration(
+    const uint8_t *in, int config_size, bool has_chroma) {
+  m_has_chroma = has_chroma;
+
+  const int min_expected_size = (has_chroma ? 64 : 32) + 1;
+  if (config_size < min_expected_size)
     return false;
 
   // Restore the shift table, four bits per entry.
@@ -227,17 +239,21 @@ bool Quantize::SetConfiguration(const uint8_t *in, int config_size) {
     m_shift_table[i * 2] = x >> 4;
     m_shift_table[i * 2 + 1] = x & 15;
   }
+  config_size -= 32;
 
   // Restore the chroma shift table, four bits per entry.
-  for (int i = 0; i < 32; ++i) {
-    uint8_t x = *in++;
-    m_chroma_shift_table[i * 2] = x >> 4;
-    m_chroma_shift_table[i * 2 + 1] = x & 15;
+  if (has_chroma) {
+    for (int i = 0; i < 32; ++i) {
+      uint8_t x = *in++;
+      m_chroma_shift_table[i * 2] = x >> 4;
+      m_chroma_shift_table[i * 2 + 1] = x & 15;
+    }
+    config_size -= 32;
   }
 
   // Restore the delinearization table.
   int single_byte_items = static_cast<int>(*in++);
-  int actual_size = 64 + 1 + single_byte_items + 2 * (128 - single_byte_items);
+  int actual_size = 1 + single_byte_items + 2 * (128 - single_byte_items);
   if (actual_size != config_size)
     return false;
   int i;
