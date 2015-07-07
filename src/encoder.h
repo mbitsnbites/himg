@@ -37,6 +37,7 @@ class Encoder {
   void EncodeRIFFStart();
   void UpdateRIFFStart();
   void EncodeHeader(int width, int height, int num_channels);
+  void EncodeLowResMappingFunction();
   void EncodeLowRes(const uint8_t *data,
                     int width,
                     int height,
@@ -55,6 +56,7 @@ class Encoder {
   int m_quality;
   bool m_use_ycbcr;
   Quantize m_quantize;
+  LowResMapper m_low_res_mapper;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_packed_data;
 };

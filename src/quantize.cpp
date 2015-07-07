@@ -44,6 +44,7 @@ const uint8_t kChromaShiftTableBase[64] = {
 // coefficients can be represented, and above that it gives about four bits of
 // precision (this makes slightly better use of the eight bits compared to a
 // corresponding floating point representation, for instance).
+// TODO(m): Move this to the Mapping class instead!
 const int16_t kMappingTable[128] = {
   1, 2, 3, 4, 5, 6, 7, 8,
   9, 10, 11, 12, 13, 14, 15, 16,
@@ -247,7 +248,7 @@ int Quantize::MappingFunctionSize() const {
 }
 
 void Quantize::GetMappingFunction(uint8_t *out) const {
-  // Store the delinearization table.
+  // Store the mapping table.
   int single_byte_items = NumberOfSingleByteMappingItems();
   *out++ = static_cast<uint8_t>(single_byte_items);
   int i;
@@ -290,7 +291,7 @@ int Quantize::NumberOfSingleByteMappingItems() const {
   return single_byte_items;
 }
 
-uint8_t Quantize::MapTo8Bit(int16_t abs_x, bool negative) {
+uint8_t Quantize::MapTo8Bit(int16_t abs_x, bool negative) const {
   // Special case: zero (it's quite common).
   if (!abs_x) {
     return 0;
@@ -318,7 +319,7 @@ uint8_t Quantize::MapTo8Bit(int16_t abs_x, bool negative) {
     return code <= 126 ? ((code + 1) << 1) : 254;
 }
 
-int16_t Quantize::UnmapFrom8Bit(uint8_t x) {
+int16_t Quantize::UnmapFrom8Bit(uint8_t x) const {
   // Special case: zero (it's quite common).
   if (!x) {
     return 0;

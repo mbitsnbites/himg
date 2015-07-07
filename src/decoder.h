@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "downsampled.h"
+#include "mapper.h"
 #include "quantize.h"
 
 namespace himg {
@@ -35,6 +36,7 @@ class Decoder {
 
   bool DecodeRIFFStart();
   bool DecodeHeader();
+  bool DecodeLowResMappingFunction();
   bool DecodeLowRes();
   bool DecodeQuantizationConfig();
   bool DecodeFullResMappingFunction();
@@ -46,6 +48,7 @@ class Decoder {
   bool UncompressData(uint8_t *out, int out_size, int in_size);
 
   Quantize m_quantize;
+  LowResMapper m_low_res_mapper;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_unpacked_data;
 

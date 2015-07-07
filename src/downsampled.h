@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "mapper.h"
+
 namespace himg {
 
 class Downsampled {
@@ -22,8 +24,9 @@ class Downsampled {
 
   void GetLowresBlock(int16_t *out, int u, int v);
 
-  void GetBlockData(uint8_t *out) const;
-  void SetBlockData(const uint8_t *in, int rows, int columns);
+  void GetBlockData(uint8_t *out, const Mapper &mapper) const;
+  void SetBlockData(
+      const uint8_t *in, int rows, int columns, const Mapper &mapper);
 
   int rows() const { return m_rows; }
 

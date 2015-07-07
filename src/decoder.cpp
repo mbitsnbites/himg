@@ -15,6 +15,7 @@
 #include "downsampled.h"
 #include "hadamard.h"
 #include "huffman.h"
+#include "mapper.h"
 #include "quantize.h"
 #include "ycbcr.h"
 
@@ -70,6 +71,12 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
   // Header data.
   if (!DecodeHeader()) {
     std::cout << "Error decoding header.\n";
+    return false;
+  }
+
+  // Low resolution mapping table.
+  if (!DecodeLowResMappingFunction()) {
+    std::cout << "Error decoding low-res mapping function.\n";
     return false;
   }
 
@@ -165,6 +172,18 @@ bool Decoder::DecodeHeader() {
   return true;
 }
 
+bool Decoder::DecodeLowResMappingFunction() {
+  // Find the LMAP chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("LMAP"), &chunk_size))
+    return false;
+  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
+  m_packed_idx += chunk_size;
+
+  // Restore the mapping function.
+  return m_low_res_mapper.SetMappingFunction(chunk_data, chunk_size);
+}
+
 bool Decoder::DecodeLowRes() {
   // Find the LRES chunk.
   int chunk_size;
@@ -187,11 +206,14 @@ bool Decoder::DecodeLowRes() {
   for (int chan = 0; chan < m_num_channels; ++chan) {
     m_downsampled.push_back(Downsampled());
     Downsampled &downsampled = m_downsampled.back();
-    downsampled.SetBlockData(
-        unpacked_data.data() + channel_size * chan, num_rows, num_cols);
+    downsampled.SetBlockData(unpacked_data.data() + channel_size * chan,
+                             num_rows,
+                             num_cols,
+                             m_low_res_mapper);
   }
 
-  std::cout << "Decoded lowres data " << num_cols << "x" << num_rows << std::endl;
+  std::cout << "Decoded lowres data " << num_cols << "x" << num_rows
+            << std::endl;
 
   return true;
 }

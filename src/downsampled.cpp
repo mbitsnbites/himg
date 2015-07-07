@@ -119,45 +119,74 @@ void Downsampled::GetLowresBlock(int16_t *out, int u, int v) {
   }
 }
 
-void Downsampled::GetBlockData(uint8_t *out) const {
+void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
+  // We use a temporary working buffer for the two most recent lines.
+  std::vector<uint8_t> work_buf(m_columns * 2);
+  uint8_t *lines[2] = { &work_buf[0], &work_buf[m_columns] };
+
   for (int v = 0; v < m_rows; ++v) {
     for (int u = 0; u < m_columns; ++u) {
-      uint8_t predicted;
+      // Predict the sample.
+      int16_t predicted;
       if (u > 0 && v > 0) {
-        predicted = m_data[v * m_columns + u - 1] +
-                    m_data[(v - 1) * m_columns + u] -
-                    m_data[(v - 1) * m_columns + u - 1];
+        predicted = static_cast<int16_t>(lines[1][u - 1]) +
+                    static_cast<int16_t>(lines[0][u]) -
+                    static_cast<int16_t>(lines[0][u - 1]);
+        predicted = std::max(int16_t(0), std::min(predicted, int16_t(255)));
       } else if (u > 0) {
-        predicted = m_data[v * m_columns + u - 1];
+        predicted = static_cast<int16_t>(lines[1][u - 1]);
       } else if (v > 0) {
-        predicted = m_data[(v - 1) * m_columns + u];
+        predicted = static_cast<int16_t>(lines[0][u]);
       } else {
         predicted = 0;
       }
-      *out++ = m_data[v * m_columns + u] - predicted;
+
+      // Calculate the delta to the prediction.
+      int16_t actual = static_cast<int16_t>(m_data[v * m_columns + u]);
+      int16_t delta = actual - predicted;
+      uint8_t delta8 = mapper.MapTo8Bit(delta);
+
+      // Compensate actual value for quantization (i.e. mimic the decoder).
+      actual = predicted + mapper.UnmapFrom8Bit(delta8);
+      actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
+      lines[1][u] = static_cast<uint8_t>(actual);
+
+      // Output the quantized delta value.
+      *out++ = delta8;
     }
+
+    std::swap(lines[0], lines[1]);
   }
 }
 
-void Downsampled::SetBlockData(const uint8_t *in, int rows, int columns) {
+void Downsampled::SetBlockData(
+    const uint8_t *in, int rows, int columns, const Mapper &mapper) {
   m_rows = rows;
   m_columns = columns;
   m_data.resize(m_rows * m_columns);
   for (int v = 0; v < m_rows; ++v) {
     for (int u = 0; u < m_columns; ++u) {
-      uint8_t predicted;
+      // Predict the sample.
+      int16_t predicted;
       if (u > 0 && v > 0) {
-        predicted = m_data[v * m_columns + u - 1] +
-                    m_data[(v - 1) * m_columns + u] -
-                    m_data[(v - 1) * m_columns + u - 1];
+        predicted = static_cast<int16_t>(m_data[v * m_columns + u - 1]) +
+                    static_cast<int16_t>(m_data[(v - 1) * m_columns + u]) -
+                    static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
+        predicted = std::max(int16_t(0), std::min(predicted, int16_t(255)));
       } else if (u > 0) {
-        predicted = m_data[v * m_columns + u - 1];
+        predicted = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
       } else if (v > 0) {
-        predicted = m_data[(v - 1) * m_columns + u];
+        predicted = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
       } else {
         predicted = 0;
       }
-      m_data[v * m_columns + u] = *in++ + predicted;
+
+      // Restore actual value.
+      int16_t delta = mapper.UnmapFrom8Bit(*in++);
+      int16_t actual = predicted + delta;
+      actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
+
+      m_data[v * m_columns + u] = static_cast<uint8_t>(actual);
     }
   }
 }

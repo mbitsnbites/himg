@@ -15,6 +15,7 @@
 #include "downsampled.h"
 #include "hadamard.h"
 #include "huffman.h"
+#include "mapper.h"
 #include "quantize.h"
 #include "ycbcr.h"
 
@@ -84,6 +85,8 @@ bool Encoder::Encode(const uint8_t *data,
   }
 
   // Lowres data.
+  m_low_res_mapper.InitForQuality(m_quality);
+  EncodeLowResMappingFunction();
   EncodeLowRes(color_space_data, width, height, pixel_stride, num_channels);
 
   // Generate the quantization configuration for the full resolution data.
@@ -157,6 +160,24 @@ void Encoder::EncodeHeader(int width,
   m_packed_data.push_back(m_use_ycbcr ? 1 : 0);  // Color space (RGB / YCbCr).
 }
 
+void Encoder::EncodeLowResMappingFunction() {
+  // Store the mapping function in the output buffer.
+  m_packed_data.push_back('L');
+  m_packed_data.push_back('M');
+  m_packed_data.push_back('A');
+  m_packed_data.push_back('P');
+
+  int map_fun_size = m_low_res_mapper.MappingFunctionSize();
+  m_packed_data.push_back(map_fun_size & 255);
+  m_packed_data.push_back((map_fun_size >> 8) & 255);
+  m_packed_data.push_back((map_fun_size >> 16) & 255);
+  m_packed_data.push_back((map_fun_size >> 24) & 255);
+
+  int map_fun_base = static_cast<int>(m_packed_data.size());
+  m_packed_data.resize(map_fun_base + map_fun_size);
+  m_low_res_mapper.GetMappingFunction(&m_packed_data[map_fun_base]);
+}
+
 void Encoder::EncodeLowRes(const uint8_t *data,
                            int width,
                            int height,
@@ -182,8 +203,8 @@ void Encoder::EncodeLowRes(const uint8_t *data,
 
   // Get the low-res versions of the image fo all channels (delta encoded).
   for (int chan = 0; chan < num_channels; ++chan) {
-    m_downsampled[chan].GetBlockData(unpacked_data.data() +
-                                     chan * channel_size);
+    m_downsampled[chan].GetBlockData(unpacked_data.data() + chan * channel_size,
+                                     m_low_res_mapper);
   }
 
   // Compress data.
@@ -210,7 +231,7 @@ void Encoder::EncodeQuantizationConfig() {
 }
 
 void Encoder::EncodeFullResMappingFunction() {
-  // Store the quantization data in the output buffer.
+  // Store the mapping function in the output buffer.
   m_packed_data.push_back('F');
   m_packed_data.push_back('M');
   m_packed_data.push_back('A');

@@ -44,8 +44,8 @@ class Quantize {
 
  private:
   int NumberOfSingleByteMappingItems() const;
-  uint8_t MapTo8Bit(int16_t abs_x, bool negative);
-  int16_t UnmapFrom8Bit(uint8_t x);
+  uint8_t MapTo8Bit(int16_t abs_x, bool negative) const;
+  int16_t UnmapFrom8Bit(uint8_t x) const;
 
   bool m_has_chroma;
   uint8_t m_shift_table[64];
