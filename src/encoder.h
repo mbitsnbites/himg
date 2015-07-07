@@ -37,12 +37,13 @@ class Encoder {
   void EncodeRIFFStart();
   void UpdateRIFFStart();
   void EncodeHeader(int width, int height, int num_channels);
-  void EncodeQuantizationConfig();
   void EncodeLowRes(const uint8_t *data,
                     int width,
                     int height,
                     int pixel_stride,
                     int num_channels);
+  void EncodeQuantizationConfig();
+  void EncodeFullResMappingFunction();
   void EncodeFullRes(const uint8_t *data,
                      int width,
                      int height,

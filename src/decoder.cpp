@@ -73,15 +73,21 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
     return false;
   }
 
+  // Lowres data.
+  if (!DecodeLowRes()) {
+    std::cout << "Error decoding low-res data.\n";
+    return false;
+  }
+
   // Quantization table.
   if (!DecodeQuantizationConfig()) {
     std::cout << "Error decoding quantization configuration.\n";
     return false;
   }
 
-  // Lowres data.
-  if (!DecodeLowRes()) {
-    std::cout << "Error decoding low-res data.\n";
+  // Full resolution mapping table.
+  if (!DecodeFullResMappingFunction()) {
+    std::cout << "Error decoding full-res mapping function.\n";
     return false;
   }
 
@@ -159,18 +165,6 @@ bool Decoder::DecodeHeader() {
   return true;
 }
 
-bool Decoder::DecodeQuantizationConfig() {
-  // Find the QCFG chunk.
-  int chunk_size;
-  if (!FindRIFFChunk(ToFourcc("QCFG"), &chunk_size))
-    return false;
-  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
-  m_packed_idx += chunk_size;
-
-  // Restore the configuration.
-  return m_quantize.SetConfiguration(chunk_data, chunk_size, HasChroma());
-}
-
 bool Decoder::DecodeLowRes() {
   // Find the LRES chunk.
   int chunk_size;
@@ -200,6 +194,30 @@ bool Decoder::DecodeLowRes() {
   std::cout << "Decoded lowres data " << num_cols << "x" << num_rows << std::endl;
 
   return true;
+}
+
+bool Decoder::DecodeQuantizationConfig() {
+  // Find the QCFG chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("QCFG"), &chunk_size))
+    return false;
+  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
+  m_packed_idx += chunk_size;
+
+  // Restore the configuration.
+  return m_quantize.SetConfiguration(chunk_data, chunk_size, HasChroma());
+}
+
+bool Decoder::DecodeFullResMappingFunction() {
+  // Find the FMAP chunk.
+  int chunk_size;
+  if (!FindRIFFChunk(ToFourcc("FMAP"), &chunk_size))
+    return false;
+  const uint8_t *chunk_data = &m_packed_data[m_packed_idx];
+  m_packed_idx += chunk_size;
+
+  // Restore the mapping function.
+  return m_quantize.SetMappingFunction(chunk_data, chunk_size);
 }
 
 bool Decoder::DecodeFullRes() {

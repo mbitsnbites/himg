@@ -24,24 +24,33 @@ class Quantize {
   // Unpack to 16-bit twos complement based on the shift table.
   void Unpack(int16_t *out, const uint8_t *in, bool chroma_channel);
 
-  // Get the required size of the quantization configuration (in bytes).
+  // Get the required size for the quantization configuration (in bytes).
   int ConfigurationSize() const;
 
   // Get the quantization configuration.
-  void GetConfiguration(uint8_t *out);
+  void GetConfiguration(uint8_t *out) const;
 
   // Set the quantization configuration.
   bool SetConfiguration(const uint8_t *in, int config_size, bool has_chroma);
 
+  // Get the required size for the mapping function (in bytes).
+  int MappingFunctionSize() const;
+
+  // Get the mapping function.
+  void GetMappingFunction(uint8_t *out) const;
+
+  // Set the mapping function.
+  bool SetMappingFunction(const uint8_t *in, int map_fun_size);
+
  private:
-  int NumberOfSingleByteDelinearizationItems() const;
-  uint8_t Delinearize(int16_t abs_x, bool negative);
-  int16_t Linearize(uint8_t x);
+  int NumberOfSingleByteMappingItems() const;
+  uint8_t MapTo8Bit(int16_t abs_x, bool negative);
+  int16_t UnmapFrom8Bit(uint8_t x);
 
   bool m_has_chroma;
   uint8_t m_shift_table[64];
   uint8_t m_chroma_shift_table[64];
-  uint16_t m_delinearization_table[128];
+  uint16_t m_mapping_table[128];
 };
 
 }  // namespace himg

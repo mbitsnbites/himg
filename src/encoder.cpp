@@ -73,10 +73,6 @@ bool Encoder::Encode(const uint8_t *data,
   // Header data.
   EncodeHeader(width, height, num_channels);
 
-  // Generate the quantization configuration.
-  m_quantize.InitForQuality(m_quality, m_use_ycbcr);
-  EncodeQuantizationConfig();
-
   // Optionally convert to YCrCb.
   const uint8_t *color_space_data = data;
   std::vector<uint8_t> ycbcr_data;
@@ -89,6 +85,11 @@ bool Encoder::Encode(const uint8_t *data,
 
   // Lowres data.
   EncodeLowRes(color_space_data, width, height, pixel_stride, num_channels);
+
+  // Generate the quantization configuration for the full resolution data.
+  m_quantize.InitForQuality(m_quality, m_use_ycbcr);
+  EncodeQuantizationConfig();
+  EncodeFullResMappingFunction();
 
   // Full resolution data.
   EncodeFullRes(color_space_data, width, height, pixel_stride, num_channels);
@@ -156,25 +157,6 @@ void Encoder::EncodeHeader(int width,
   m_packed_data.push_back(m_use_ycbcr ? 1 : 0);  // Color space (RGB / YCbCr).
 }
 
-void Encoder::EncodeQuantizationConfig() {
-  // Store the quantization data in the output buffer.
-  m_packed_data.push_back('Q');
-  m_packed_data.push_back('C');
-  m_packed_data.push_back('F');
-  m_packed_data.push_back('G');
-
-  int config_size = m_quantize.ConfigurationSize();
-  m_packed_data.push_back(config_size & 255);
-  m_packed_data.push_back((config_size >> 8) & 255);
-  m_packed_data.push_back((config_size >> 16) & 255);
-  m_packed_data.push_back((config_size >> 24) & 255);
-
-  int quantization_config_base = static_cast<int>(m_packed_data.size());
-  m_packed_data.resize(
-        quantization_config_base + config_size);
-  m_quantize.GetConfiguration(&m_packed_data[quantization_config_base]);
-}
-
 void Encoder::EncodeLowRes(const uint8_t *data,
                            int width,
                            int height,
@@ -207,6 +189,42 @@ void Encoder::EncodeLowRes(const uint8_t *data,
   // Compress data.
   int packed_size = AppendPackedData(unpacked_data.data(), unpacked_size);
   std::cout << "Low resolution data: " << packed_size << " bytes.\n";
+}
+
+void Encoder::EncodeQuantizationConfig() {
+  // Store the quantization data in the output buffer.
+  m_packed_data.push_back('Q');
+  m_packed_data.push_back('C');
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('G');
+
+  int config_size = m_quantize.ConfigurationSize();
+  m_packed_data.push_back(config_size & 255);
+  m_packed_data.push_back((config_size >> 8) & 255);
+  m_packed_data.push_back((config_size >> 16) & 255);
+  m_packed_data.push_back((config_size >> 24) & 255);
+
+  int quantization_config_base = static_cast<int>(m_packed_data.size());
+  m_packed_data.resize(quantization_config_base + config_size);
+  m_quantize.GetConfiguration(&m_packed_data[quantization_config_base]);
+}
+
+void Encoder::EncodeFullResMappingFunction() {
+  // Store the quantization data in the output buffer.
+  m_packed_data.push_back('F');
+  m_packed_data.push_back('M');
+  m_packed_data.push_back('A');
+  m_packed_data.push_back('P');
+
+  int map_fun_size = m_quantize.MappingFunctionSize();
+  m_packed_data.push_back(map_fun_size & 255);
+  m_packed_data.push_back((map_fun_size >> 8) & 255);
+  m_packed_data.push_back((map_fun_size >> 16) & 255);
+  m_packed_data.push_back((map_fun_size >> 24) & 255);
+
+  int map_fun_base = static_cast<int>(m_packed_data.size());
+  m_packed_data.resize(map_fun_base + map_fun_size);
+  m_quantize.GetMappingFunction(&m_packed_data[map_fun_base]);
 }
 
 void Encoder::EncodeFullRes(const uint8_t *data,

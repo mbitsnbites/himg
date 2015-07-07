@@ -35,8 +35,9 @@ class Decoder {
 
   bool DecodeRIFFStart();
   bool DecodeHeader();
-  bool DecodeQuantizationConfig();
   bool DecodeLowRes();
+  bool DecodeQuantizationConfig();
+  bool DecodeFullResMappingFunction();
   bool DecodeFullRes();
 
   bool DecodeRIFFChunk(uint32_t *fourcc, int *size);
