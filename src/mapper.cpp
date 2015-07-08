@@ -9,6 +9,7 @@
 #include "mapper.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace himg {
 
@@ -34,12 +35,59 @@ const int16_t kLowResMappingTable[128] = {
   226, 230, 235, 240, 245, 250, 255, 999 // FIXME!
 };
 
+const std::pair<int, int> kLowResMapScaleTable[] = {
+  {   0, 120 },
+  {   5,  90 },
+  {  10,  70 },
+  {  20,  40 },
+  {  30,  32 },
+  {  40,  26 },
+  {  50,  20 },
+  { 100,  16 }
+};
+
+// Given a quality value in the range [0, 100], return an interpolated scaling
+// factor.
+int QualityToScale(int quality,
+                   const std::pair<int, int> *table,
+                   int table_size) {
+  // Look up the quality level in the quality -> scaling factor LUT.
+  int idx;
+  for (idx = 0; idx < table_size - 1; ++idx) {
+    if (table[idx + 1].first > quality)
+      break;
+  }
+  if (idx >= table_size - 1)
+    return table[table_size - 1].second;
+
+  // Pick out the two closest table entries.
+  int q1 = table[idx].first;
+  int s1 = table[idx].second;
+  int q2 = table[idx + 1].first;
+  int s2 = table[idx + 1].second;
+
+  // Perform linear interpolation between the two table entries.
+  int q = quality;
+  int denom = q2 - q1;
+  return s1 + ((s2 - s1) * (q - q1) + (denom >> 1)) / denom;
+}
+
 }  // namespace
 
 void LowResMapper::InitForQuality(int quality) {
-  // TODO(m): Use quality to control the mapping table.
-  for (int i = 0; i < 128; ++i)
-    m_mapping_table[i] = kLowResMappingTable[i];
+  // Determine ramp factor based on the quality setting. The ramp factor is in
+  // 1/16ths.
+  int16_t index_scale = QualityToScale(quality,
+                                       kLowResMapScaleTable,
+                                       sizeof(kLowResMapScaleTable) /
+                                          sizeof(kLowResMapScaleTable[0]));
+
+  // Generate the mapping table based on the index scale.
+  for (int16_t i = 0; i < 128; ++i) {
+    int16_t index = (i * index_scale + 8) >> 4;
+    index = std::min(index, int16_t(127));
+    m_mapping_table[i] = kLowResMappingTable[index];
+  }
 }
 
 int Mapper::MappingFunctionSize() const {
