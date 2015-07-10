@@ -12,6 +12,46 @@
 
 namespace himg {
 
+namespace {
+
+// We have five different ways to predict the current sample based on its
+// neighbours (see PredictSample() for details).
+const int kNumPredictors = 5;
+
+// We use a short predictor error history to select which predictor to use for
+// the current sample. This constant defines the length of the history.
+// TODO(m): Using a predictor history like this is quite costly (CPU cycles). We
+// should probably store the decision in the encoded stream (and do a more
+// optimal selection while we're at it).
+const int kPredictorHistory = 4;
+
+int16_t ClampTo8Bit(int16_t x) {
+  return std::max(int16_t(0), std::min(x, int16_t(255)));
+}
+
+int16_t PredictSample(int16_t s1, int16_t s2, int16_t s3, int predictor) {
+  switch (predictor) {
+    default:
+    case 0:
+      // This is usually the best choice: a mix between methods 1 & 2.
+      return ClampTo8Bit((3 * (s2 + s3) - 2 * s1 + 2) >> 2);
+    case 1:
+      // Average of the two closest samples (above & left).
+      return (s2 + s3 + 1) >> 1;
+    case 2:
+      // Linear extrapolation of s1, s2 & s3.
+      return ClampTo8Bit(s2 + s3 - s1);
+    case 3:
+      // Sample above.
+      return s2;
+    case 4:
+      // Sample to the left.
+      return s3;
+  }
+}
+
+}  // namespace
+
 Downsampled::Downsampled() : m_rows(0), m_columns(0) {
 }
 
@@ -124,22 +164,45 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
   std::vector<uint8_t> work_buf(m_columns * 2);
   uint8_t *lines[2] = { &work_buf[0], &work_buf[m_columns] };
 
+  // Init predictor history.
+  int predictor_error[kNumPredictors][kPredictorHistory];
+  for (int predictor = 0; predictor < kNumPredictors; ++predictor)
+    for (int age = 0; age < kPredictorHistory; ++age)
+      predictor_error[predictor][age] = 0;
+
   for (int v = 0; v < m_rows; ++v) {
     for (int u = 0; u < m_columns; ++u) {
-      // Predict the sample.
-      int16_t predicted;
+      // Extract the three neighbour samples that we use for prediction.
+      int16_t s1, s2, s3;
       if (u > 0 && v > 0) {
-        predicted = static_cast<int16_t>(lines[1][u - 1]) +
-                    static_cast<int16_t>(lines[0][u]) -
-                    static_cast<int16_t>(lines[0][u - 1]);
-        predicted = std::max(int16_t(0), std::min(predicted, int16_t(255)));
+        s1 = static_cast<int16_t>(lines[0][u - 1]);
+        s2 = static_cast<int16_t>(lines[0][u]);
+        s3 = static_cast<int16_t>(lines[1][u - 1]);
       } else if (u > 0) {
-        predicted = static_cast<int16_t>(lines[1][u - 1]);
+        s1 = s2 = s3 = static_cast<int16_t>(lines[1][u - 1]);
       } else if (v > 0) {
-        predicted = static_cast<int16_t>(lines[0][u]);
+        s1 = s2 = s3 = static_cast<int16_t>(lines[0][u]);
       } else {
-        predicted = 0;
+        s1 = s2 = s3 = 128;
       }
+
+      // Select the best predictor.
+      int best_predictor = 0;
+      {
+        int best_predictor_error = 99999999;
+        for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
+          int error = 0;
+          for (int age = 0; age < kPredictorHistory; ++age)
+            error += predictor_error[predictor][age];
+          if (error < best_predictor_error) {
+            best_predictor = predictor;
+            best_predictor_error = error;
+          }
+        }
+      }
+
+      // Predict the current sample.
+      int16_t predicted = PredictSample(s1, s2, s3, best_predictor);
 
       // Calculate the delta to the prediction.
       int16_t actual = static_cast<int16_t>(m_data[v * m_columns + u]);
@@ -150,6 +213,14 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
       actual = predicted + mapper.UnmapFrom8Bit(delta8);
       actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
       lines[1][u] = static_cast<uint8_t>(actual);
+
+      // Update the predictor error history.
+      for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
+        for (int age = kPredictorHistory - 1; age > 0; --age)
+          predictor_error[predictor][age] = predictor_error[predictor][age - 1];
+        int16_t error = actual - PredictSample(s1, s2, s3, predictor);
+        predictor_error[predictor][0] = error * error;
+      }
 
       // Output the quantized delta value.
       *out++ = delta8;
@@ -164,28 +235,61 @@ void Downsampled::SetBlockData(
   m_rows = rows;
   m_columns = columns;
   m_data.resize(m_rows * m_columns);
+
+  // Init predictor history.
+  int predictor_error[kNumPredictors][kPredictorHistory];
+  for (int predictor = 0; predictor < kNumPredictors; ++predictor)
+    for (int age = 0; age < kPredictorHistory; ++age)
+      predictor_error[predictor][age] = 0;
+
   for (int v = 0; v < m_rows; ++v) {
     for (int u = 0; u < m_columns; ++u) {
-      // Predict the sample.
-      int16_t predicted;
+      // Extract the three neighbour samples that we use for prediction.
+      int16_t s1, s2, s3;
       if (u > 0 && v > 0) {
-        predicted = static_cast<int16_t>(m_data[v * m_columns + u - 1]) +
-                    static_cast<int16_t>(m_data[(v - 1) * m_columns + u]) -
-                    static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
-        predicted = std::max(int16_t(0), std::min(predicted, int16_t(255)));
+        s1 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
+        s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+        s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
       } else if (u > 0) {
-        predicted = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+        s1 = s2 = s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
       } else if (v > 0) {
-        predicted = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+        s1 = s2 = s3 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
       } else {
-        predicted = 0;
+        s1 = s2 = s3 = 128;
       }
+
+      // Select the best predictor.
+      int best_predictor = 0;
+      {
+        int best_predictor_error = 99999999;
+        for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
+          int error = 0;
+          for (int age = 0; age < kPredictorHistory; ++age)
+            error += predictor_error[predictor][age];
+          if (error < best_predictor_error) {
+            best_predictor = predictor;
+            best_predictor_error = error;
+          }
+        }
+      }
+
+      // Predict the current sample.
+      int16_t predicted = PredictSample(s1, s2, s3, best_predictor);
 
       // Restore actual value.
       int16_t delta = mapper.UnmapFrom8Bit(*in++);
       int16_t actual = predicted + delta;
       actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
 
+      // Update the predictor error history.
+      for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
+        for (int age = kPredictorHistory - 1; age > 0; --age)
+          predictor_error[predictor][age] = predictor_error[predictor][age - 1];
+        int16_t error = actual - PredictSample(s1, s2, s3, predictor);
+        predictor_error[predictor][0] = error * error;
+      }
+
+      // Output the restored sample value.
       m_data[v * m_columns + u] = static_cast<uint8_t>(actual);
     }
   }
