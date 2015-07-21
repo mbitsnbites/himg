@@ -196,8 +196,10 @@ void Encoder::EncodeLowRes(const uint8_t *data,
   }
 
   // Prepare an unpacked buffer all channels.
-  const int num_blocks = ((width + 7) >> 3) * ((height + 7) >> 3);
-  const int channel_size = num_blocks;
+  const int num_rows = (height + 7) >> 3;
+  const int num_cols = (width + 7) >> 3;
+  const int channel_size =
+      Downsampled::BlockDataSizePerChannel(num_rows, num_cols);
   const int unpacked_size = channel_size * num_channels;
   std::vector<uint8_t> unpacked_data(unpacked_size);
 

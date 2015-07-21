@@ -193,8 +193,8 @@ bool Decoder::DecodeLowRes() {
   // Prepare a buffer for all channels.
   const int num_rows = (m_height + 7) >> 3;
   const int num_cols = (m_width + 7) >> 3;
-  const int num_blocks = num_rows * num_cols;
-  const int channel_size = num_blocks;
+  const int channel_size =
+      Downsampled::BlockDataSizePerChannel(num_rows, num_cols);
   const int unpacked_size = channel_size * m_num_channels;
   std::vector<uint8_t> unpacked_data(unpacked_size);
 

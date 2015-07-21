@@ -24,6 +24,8 @@ class Downsampled {
 
   void GetLowresBlock(int16_t *out, int u, int v);
 
+  static int BlockDataSizePerChannel(int rows, int columns);
+
   void GetBlockData(uint8_t *out, const Mapper &mapper) const;
   void SetBlockData(
       const uint8_t *in, int rows, int columns, const Mapper &mapper);

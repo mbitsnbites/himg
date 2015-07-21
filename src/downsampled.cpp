@@ -159,6 +159,10 @@ void Downsampled::GetLowresBlock(int16_t *out, int u, int v) {
   }
 }
 
+int Downsampled::BlockDataSizePerChannel(int rows, int columns) {
+  return rows * columns;
+}
+
 void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
   // We use a temporary working buffer for the two most recent lines.
   std::vector<uint8_t> work_buf(m_columns * 2);
