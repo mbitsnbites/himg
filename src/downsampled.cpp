@@ -18,35 +18,44 @@ namespace {
 // neighbours (see PredictSample() for details).
 const int kNumPredictors = 5;
 
-// We use a short predictor error history to select which predictor to use for
-// the current sample. This constant defines the length of the history.
-// TODO(m): Using a predictor history like this is quite costly (CPU cycles). We
-// should probably store the decision in the encoded stream (and do a more
-// optimal selection while we're at it).
-const int kPredictorHistory = 4;
+// A macro block is a collection of low-res samples. An optimal predictor is
+// selected for each macro block.
+const int kMacroBlockSize = 16;
+
+int NumMacroBlocks(int blocks) {
+  return (blocks + kMacroBlockSize - 1) / kMacroBlockSize;
+}
 
 int16_t ClampTo8Bit(int16_t x) {
   return std::max(int16_t(0), std::min(x, int16_t(255)));
+}
+
+uint8_t EncodePredictor(int predictor) {
+  return static_cast<uint8_t>(predictor - 2);
+}
+
+int DecodePredictor(uint8_t encoded_predictor) {
+  return static_cast<int>(encoded_predictor + 2);
 }
 
 int16_t PredictSample(int16_t s1, int16_t s2, int16_t s3, int predictor) {
   switch (predictor) {
     default:
     case 0:
-      // This is usually the best choice: a mix between methods 1 & 2.
+      // A mix between methods 3 & 4.
       return ClampTo8Bit((3 * (s2 + s3) - 2 * s1 + 2) >> 2);
     case 1:
-      // Average of the two closest samples (above & left).
-      return (s2 + s3 + 1) >> 1;
-    case 2:
-      // Linear extrapolation of s1, s2 & s3.
-      return ClampTo8Bit(s2 + s3 - s1);
-    case 3:
       // Sample above.
       return s2;
-    case 4:
+    case 2:
       // Sample to the left.
       return s3;
+    case 3:
+      // Average of the two closest samples (above & left).
+      return (s2 + s3 + 1) >> 1;
+    case 4:
+      // Linear extrapolation of s1, s2 & s3.
+      return ClampTo8Bit(s2 + s3 - s1);
   }
 }
 
@@ -160,22 +169,97 @@ void Downsampled::GetLowresBlock(int16_t *out, int u, int v) {
 }
 
 int Downsampled::BlockDataSizePerChannel(int rows, int columns) {
-  return rows * columns;
+  const int macro_rows = NumMacroBlocks(rows);
+  const int macro_columns = NumMacroBlocks(columns);
+  return macro_rows * macro_columns + rows * columns;
 }
 
 void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
+  const int macro_rows = NumMacroBlocks(m_rows);
+  const int macro_columns = NumMacroBlocks(m_columns);
+
+  // Determine the best predictor for each macro block.
+  uint8_t *predictor_selection = out;
+  {
+    int predictor_error[kNumPredictors];
+    for (int mv = 0; mv < macro_rows; ++mv) {
+      int v0 = mv * kMacroBlockSize;
+      for (int mu = 0; mu < macro_columns; ++mu) {
+        int u0 = mu * kMacroBlockSize;
+
+        // Clear the prediction error vector.
+        for (int i = 0; i < kNumPredictors; ++i)
+          predictor_error[i] = 0;
+
+        // Iterate over all the pixels of this macro block.
+        for (int dv = 0; dv < kMacroBlockSize; ++dv) {
+          int v = v0 + dv;
+          if (v < m_rows) {
+            for (int du = 0; du < kMacroBlockSize; ++du) {
+              int u = u0 + du;
+              if (u < m_columns) {
+                // Extract the three neighbour samples that we use for
+                // prediction.
+                int16_t s1, s2, s3;
+                if (u > 0 && v > 0) {
+                  s1 =
+                      static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
+                  s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+                  s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+                } else if (u > 0) {
+                  s1 = s2 = s3 =
+                      static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+                } else if (v > 0) {
+                  s1 = s2 = s3 =
+                      static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+                } else {
+                  s1 = s2 = s3 = 128;
+                }
+
+                // Try all the predictors.
+                for (int predictor = 0; predictor < kNumPredictors;
+                     ++predictor) {
+                  // Calculate the prediction error for this predictor.
+                  int16_t predicted = PredictSample(s1, s2, s3, predictor);
+                  int16_t actual =
+                      static_cast<int16_t>(m_data[v * m_columns + u]);
+                  int delta = static_cast<int>(actual - predicted);
+                  int err = delta * delta;
+
+                  // Accumulate the prediction error for this predictor.
+                  predictor_error[predictor] += err;
+                }
+              }
+            }
+          }
+        }
+
+        // Select the best predictor for this macro block.
+        int best_predictor = 0;
+        int best_error = predictor_error[0];
+        for (int predictor = 1; predictor < kNumPredictors; ++predictor) {
+          if (predictor_error[predictor] < best_error) {
+            best_predictor = predictor;
+            best_error = predictor_error[predictor];
+          }
+        }
+
+        // Output the predictor.
+        *out++ = EncodePredictor(best_predictor);
+      }
+    }
+  }
+
   // We use a temporary working buffer for the two most recent lines.
   std::vector<uint8_t> work_buf(m_columns * 2);
-  uint8_t *lines[2] = { &work_buf[0], &work_buf[m_columns] };
+  uint8_t *lines[2] = {&work_buf[0], &work_buf[m_columns]};
 
-  // Init predictor history.
-  int predictor_error[kNumPredictors][kPredictorHistory];
-  for (int predictor = 0; predictor < kNumPredictors; ++predictor)
-    for (int age = 0; age < kPredictorHistory; ++age)
-      predictor_error[predictor][age] = 0;
-
+  // Delta-compress all samples.
   for (int v = 0; v < m_rows; ++v) {
+    const int mv = v / kMacroBlockSize;
     for (int u = 0; u < m_columns; ++u) {
+      const int mu = u / kMacroBlockSize;
+
       // Extract the three neighbour samples that we use for prediction.
       int16_t s1, s2, s3;
       if (u > 0 && v > 0) {
@@ -190,23 +274,12 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
         s1 = s2 = s3 = 128;
       }
 
-      // Select the best predictor.
-      int best_predictor = 0;
-      {
-        int best_predictor_error = 99999999;
-        for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
-          int error = 0;
-          for (int age = 0; age < kPredictorHistory; ++age)
-            error += predictor_error[predictor][age];
-          if (error < best_predictor_error) {
-            best_predictor = predictor;
-            best_predictor_error = error;
-          }
-        }
-      }
+      // Get the predictor for this macro block.
+      int predictor =
+          DecodePredictor(predictor_selection[mv * macro_columns + mu]);
 
       // Predict the current sample.
-      int16_t predicted = PredictSample(s1, s2, s3, best_predictor);
+      int16_t predicted = PredictSample(s1, s2, s3, predictor);
 
       // Calculate the delta to the prediction.
       int16_t actual = static_cast<int16_t>(m_data[v * m_columns + u]);
@@ -218,14 +291,6 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
       actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
       lines[1][u] = static_cast<uint8_t>(actual);
 
-      // Update the predictor error history.
-      for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
-        for (int age = kPredictorHistory - 1; age > 0; --age)
-          predictor_error[predictor][age] = predictor_error[predictor][age - 1];
-        int16_t error = actual - PredictSample(s1, s2, s3, predictor);
-        predictor_error[predictor][0] = error * error;
-      }
-
       // Output the quantized delta value.
       *out++ = delta8;
     }
@@ -236,18 +301,23 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
 
 void Downsampled::SetBlockData(
     const uint8_t *in, int rows, int columns, const Mapper &mapper) {
+  const int macro_rows = NumMacroBlocks(rows);
+  const int macro_columns = NumMacroBlocks(columns);
+
   m_rows = rows;
   m_columns = columns;
   m_data.resize(m_rows * m_columns);
 
-  // Init predictor history.
-  int predictor_error[kNumPredictors][kPredictorHistory];
-  for (int predictor = 0; predictor < kNumPredictors; ++predictor)
-    for (int age = 0; age < kPredictorHistory; ++age)
-      predictor_error[predictor][age] = 0;
+  // Get the best predictor per macro-block.
+  const uint8_t *predictor_selection = in;
+  in += macro_rows * macro_columns;
 
+  // Reconstruct samples (integrate deltas).
   for (int v = 0; v < m_rows; ++v) {
+    const int mv = v / kMacroBlockSize;
     for (int u = 0; u < m_columns; ++u) {
+      const int mu = u / kMacroBlockSize;
+
       // Extract the three neighbour samples that we use for prediction.
       int16_t s1, s2, s3;
       if (u > 0 && v > 0) {
@@ -262,36 +332,17 @@ void Downsampled::SetBlockData(
         s1 = s2 = s3 = 128;
       }
 
-      // Select the best predictor.
-      int best_predictor = 0;
-      {
-        int best_predictor_error = 99999999;
-        for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
-          int error = 0;
-          for (int age = 0; age < kPredictorHistory; ++age)
-            error += predictor_error[predictor][age];
-          if (error < best_predictor_error) {
-            best_predictor = predictor;
-            best_predictor_error = error;
-          }
-        }
-      }
+      // Get the predictor for this macro block.
+      int predictor =
+          DecodePredictor(predictor_selection[mv * macro_columns + mu]);
 
       // Predict the current sample.
-      int16_t predicted = PredictSample(s1, s2, s3, best_predictor);
+      int16_t predicted = PredictSample(s1, s2, s3, predictor);
 
       // Restore actual value.
       int16_t delta = mapper.UnmapFrom8Bit(*in++);
       int16_t actual = predicted + delta;
       actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
-
-      // Update the predictor error history.
-      for (int predictor = 0; predictor < kNumPredictors; ++predictor) {
-        for (int age = kPredictorHistory - 1; age > 0; --age)
-          predictor_error[predictor][age] = predictor_error[predictor][age - 1];
-        int16_t error = actual - PredictSample(s1, s2, s3, predictor);
-        predictor_error[predictor][0] = error * error;
-      }
 
       // Output the restored sample value.
       m_data[v * m_columns + u] = static_cast<uint8_t>(actual);
