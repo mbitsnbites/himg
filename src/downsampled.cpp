@@ -194,42 +194,44 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
         // Iterate over all the pixels of this macro block.
         for (int dv = 0; dv < kMacroBlockSize; ++dv) {
           int v = v0 + dv;
-          if (v < m_rows) {
-            for (int du = 0; du < kMacroBlockSize; ++du) {
-              int u = u0 + du;
-              if (u < m_columns) {
-                // Extract the three neighbour samples that we use for
-                // prediction.
-                int16_t s1, s2, s3;
-                if (u > 0 && v > 0) {
-                  s1 =
-                      static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
-                  s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
-                  s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
-                } else if (u > 0) {
-                  s1 = s2 = s3 =
-                      static_cast<int16_t>(m_data[v * m_columns + u - 1]);
-                } else if (v > 0) {
-                  s1 = s2 = s3 =
-                      static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
-                } else {
-                  s1 = s2 = s3 = 128;
-                }
+          if (v >= m_rows)
+            break;
 
-                // Try all the predictors.
-                for (int predictor = 0; predictor < kNumPredictors;
-                     ++predictor) {
-                  // Calculate the prediction error for this predictor.
-                  int16_t predicted = PredictSample(s1, s2, s3, predictor);
-                  int16_t actual =
-                      static_cast<int16_t>(m_data[v * m_columns + u]);
-                  int delta = static_cast<int>(actual - predicted);
-                  int err = delta * delta;
+          for (int du = 0; du < kMacroBlockSize; ++du) {
+            int u = u0 + du;
+            if (u >= m_columns)
+              break;
 
-                  // Accumulate the prediction error for this predictor.
-                  predictor_error[predictor] += err;
-                }
-              }
+            // Extract the three neighbour samples that we use for
+            // prediction.
+            int16_t s1, s2, s3;
+            if (du > 0 && dv > 0) {
+              s1 =
+                  static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
+              s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+              s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+            } else if (du > 0) {
+              s1 = s2 = s3 =
+                  static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+            } else if (dv > 0) {
+              s1 = s2 = s3 =
+                  static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+            } else {
+              s1 = s2 = s3 = 128;
+            }
+
+            // Try all the predictors.
+            for (int predictor = 0; predictor < kNumPredictors;
+                 ++predictor) {
+              // Calculate the prediction error for this predictor.
+              int16_t predicted = PredictSample(s1, s2, s3, predictor);
+              int16_t actual =
+                  static_cast<int16_t>(m_data[v * m_columns + u]);
+              int delta = static_cast<int>(actual - predicted);
+              int err = delta * delta;
+
+              // Accumulate the prediction error for this predictor.
+              predictor_error[predictor] += err;
             }
           }
         }
@@ -250,52 +252,66 @@ void Downsampled::GetBlockData(uint8_t *out, const Mapper &mapper) const {
     }
   }
 
-  // We use a temporary working buffer for the two most recent lines.
-  std::vector<uint8_t> work_buf(m_columns * 2);
-  uint8_t *lines[2] = {&work_buf[0], &work_buf[m_columns]};
+  // We use a temporary working buffer for the two most recent lines in the
+  // macro block.
+  uint8_t work_buf[kMacroBlockSize * 2];
+  uint8_t *lines[2] = {&work_buf[0], &work_buf[kMacroBlockSize]};
 
-  // Delta-compress all samples.
-  for (int v = 0; v < m_rows; ++v) {
-    const int mv = v / kMacroBlockSize;
-    for (int u = 0; u < m_columns; ++u) {
-      const int mu = u / kMacroBlockSize;
-
-      // Extract the three neighbour samples that we use for prediction.
-      int16_t s1, s2, s3;
-      if (u > 0 && v > 0) {
-        s1 = static_cast<int16_t>(lines[0][u - 1]);
-        s2 = static_cast<int16_t>(lines[0][u]);
-        s3 = static_cast<int16_t>(lines[1][u - 1]);
-      } else if (u > 0) {
-        s1 = s2 = s3 = static_cast<int16_t>(lines[1][u - 1]);
-      } else if (v > 0) {
-        s1 = s2 = s3 = static_cast<int16_t>(lines[0][u]);
-      } else {
-        s1 = s2 = s3 = 128;
-      }
+  // Iterate over all macro blocks.
+  for (int mv = 0; mv < macro_rows; ++mv) {
+    int v0 = mv * kMacroBlockSize;
+    for (int mu = 0; mu < macro_columns; ++mu) {
+      int u0 = mu * kMacroBlockSize;
 
       // Get the predictor for this macro block.
       int predictor =
           DecodePredictor(predictor_selection[mv * macro_columns + mu]);
 
-      // Predict the current sample.
-      int16_t predicted = PredictSample(s1, s2, s3, predictor);
+      // Iterate over all the pixels of this macro block.
+      for (int dv = 0; dv < kMacroBlockSize; ++dv) {
+        int v = v0 + dv;
+        if (v >= m_rows)
+          break;
 
-      // Calculate the delta to the prediction.
-      int16_t actual = static_cast<int16_t>(m_data[v * m_columns + u]);
-      int16_t delta = actual - predicted;
-      uint8_t delta8 = mapper.MapTo8Bit(delta);
+        for (int du = 0; du < kMacroBlockSize; ++du) {
+          int u = u0 + du;
+          if (u >= m_columns)
+            break;
 
-      // Compensate actual value for quantization (i.e. mimic the decoder).
-      actual = predicted + mapper.UnmapFrom8Bit(delta8);
-      actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
-      lines[1][u] = static_cast<uint8_t>(actual);
+          // Extract the three neighbour samples that we use for prediction.
+          int16_t s1, s2, s3;
+          if (du > 0 && dv > 0) {
+            s1 = static_cast<int16_t>(lines[0][du - 1]);
+            s2 = static_cast<int16_t>(lines[0][du]);
+            s3 = static_cast<int16_t>(lines[1][du - 1]);
+          } else if (du > 0) {
+            s1 = s2 = s3 = static_cast<int16_t>(lines[1][du - 1]);
+          } else if (dv > 0) {
+            s1 = s2 = s3 = static_cast<int16_t>(lines[0][du]);
+          } else {
+            s1 = s2 = s3 = 128;
+          }
 
-      // Output the quantized delta value.
-      *out++ = delta8;
+          // Predict the current sample.
+          int16_t predicted = PredictSample(s1, s2, s3, predictor);
+
+          // Calculate the delta to the prediction.
+          int16_t actual = static_cast<int16_t>(m_data[v * m_columns + u]);
+          int16_t delta = actual - predicted;
+          uint8_t delta8 = mapper.MapTo8Bit(delta);
+
+          // Compensate actual value for quantization (i.e. mimic the decoder).
+          actual = predicted + mapper.UnmapFrom8Bit(delta8);
+          actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
+          lines[1][du] = static_cast<uint8_t>(actual);
+
+          // Output the quantized delta value.
+          *out++ = delta8;
+        }
+
+        std::swap(lines[0], lines[1]);
+      }
     }
-
-    std::swap(lines[0], lines[1]);
   }
 }
 
@@ -308,44 +324,59 @@ void Downsampled::SetBlockData(
   m_columns = columns;
   m_data.resize(m_rows * m_columns);
 
-  // Get the best predictor per macro-block.
+  // The per macro-block predictor selection comes first (one byte per macro
+  // block).
   const uint8_t *predictor_selection = in;
   in += macro_rows * macro_columns;
 
-  // Reconstruct samples (integrate deltas).
-  for (int v = 0; v < m_rows; ++v) {
-    const int mv = v / kMacroBlockSize;
-    for (int u = 0; u < m_columns; ++u) {
-      const int mu = u / kMacroBlockSize;
-
-      // Extract the three neighbour samples that we use for prediction.
-      int16_t s1, s2, s3;
-      if (u > 0 && v > 0) {
-        s1 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
-        s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
-        s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
-      } else if (u > 0) {
-        s1 = s2 = s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
-      } else if (v > 0) {
-        s1 = s2 = s3 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
-      } else {
-        s1 = s2 = s3 = 128;
-      }
+  // Reconstruct samples (integrate deltas) for all macro blocks.
+  for (int mv = 0; mv < macro_rows; ++mv) {
+    int v0 = mv * kMacroBlockSize;
+    for (int mu = 0; mu < macro_columns; ++mu) {
+      int u0 = mu * kMacroBlockSize;
 
       // Get the predictor for this macro block.
       int predictor =
           DecodePredictor(predictor_selection[mv * macro_columns + mu]);
 
-      // Predict the current sample.
-      int16_t predicted = PredictSample(s1, s2, s3, predictor);
+      // Iterate over all the pixels of this macro block.
+      for (int dv = 0; dv < kMacroBlockSize; ++dv) {
+        int v = v0 + dv;
+        if (v >= m_rows)
+          break;
 
-      // Restore actual value.
-      int16_t delta = mapper.UnmapFrom8Bit(*in++);
-      int16_t actual = predicted + delta;
-      actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
+        for (int du = 0; du < kMacroBlockSize; ++du) {
+          int u = u0 + du;
+          if (u >= m_columns)
+            break;
 
-      // Output the restored sample value.
-      m_data[v * m_columns + u] = static_cast<uint8_t>(actual);
+          // Extract the three neighbour samples that we use for prediction.
+          int16_t s1, s2, s3;
+          if (du > 0 && dv > 0) {
+            s1 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u - 1]);
+            s2 = static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+            s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+          } else if (du > 0) {
+            s1 = s2 = s3 = static_cast<int16_t>(m_data[v * m_columns + u - 1]);
+          } else if (dv > 0) {
+            s1 = s2 = s3 =
+                static_cast<int16_t>(m_data[(v - 1) * m_columns + u]);
+          } else {
+            s1 = s2 = s3 = 128;
+          }
+
+          // Predict the current sample.
+          int16_t predicted = PredictSample(s1, s2, s3, predictor);
+
+          // Restore actual value.
+          int16_t delta = mapper.UnmapFrom8Bit(*in++);
+          int16_t actual = predicted + delta;
+          actual = std::max(int16_t(0), std::min(actual, int16_t(255)));
+
+          // Output the restored sample value.
+          m_data[v * m_columns + u] = static_cast<uint8_t>(actual);
+        }
+      }
     }
   }
 }
