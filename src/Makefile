@@ -7,9 +7,10 @@
 ###############################################################################
 
 CPP = g++
-CPPFLAGS = -c -W -Wall -g -std=c++11
+CPPFLAGS = -c -W -Wall -g -O3 -funroll-loops -std=c++11
 AR = ar
 ARFLAGS = rcs
+LFLAGS = -g
 
 LIB_OBJS = common.o \
            decoder.o \
@@ -31,10 +32,10 @@ clean:
 	rm -rf chimg dhimg libhimg.a $(ALL_OBJS)
 
 chimg: chimg.o libhimg.a
-	$(CPP) -o chimg chimg.o -L. -lhimg -lfreeimage
+	$(CPP) $(LFLAGS) -o chimg chimg.o -L. -lhimg -lfreeimage
 
 dhimg: dhimg.o libhimg.a
-	$(CPP) -o dhimg dhimg.o -L. -lhimg -lfreeimage
+	$(CPP) $(LFLAGS) -o dhimg dhimg.o -L. -lhimg -lfreeimage
 
 libhimg.a: $(LIB_OBJS)
 	$(AR) $(ARFLAGS) $@ $(LIB_OBJS)
