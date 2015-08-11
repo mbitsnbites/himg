@@ -274,6 +274,12 @@ bool Decoder::DecodeFullRes() {
     for (int chan = 0; chan < m_num_channels; ++chan) {
       // Get the low-res (divided by 8x8) image for this channel.
       Downsampled &downsampled = m_downsampled[chan];
+      const int horizontal_blocks = downsampled.columns();
+
+      // Create an inverse index LUT for reading back the interleaved elements.
+      int deinterleave_index[64];
+      for (int i = 0; i < 64; ++i)
+        deinterleave_index[kIndexLUT[i]] = i * horizontal_blocks;
 
       bool is_chroma_channel = m_use_ycbcr && (chan == 1 || chan == 2);
 
@@ -283,10 +289,14 @@ bool Decoder::DecodeFullRes() {
         int block_width = std::min(8, m_width - x);
 
         // Get quantized data from the unpacked buffer.
+        // NOTE: This seems to be a bottleneck on x86 (64). The irregular
+        // addressing pattern and two levels of indirection seem to be the main
+        // issues. Loop unrolling (e.g. -funroll-loops) helps to some extent.
         uint8_t packed[64];
-        for (int i = 0; i < 64; ++i) {
-          packed[kIndexLUT[i]] =
-              unpacked_data[unpacked_idx + u + i * downsampled.columns()];
+        {
+          const uint8_t *src = &unpacked_data[unpacked_idx + u];
+          for (int i = 0; i < 64; ++i)
+            packed[i] = src[deinterleave_index[i]];
         }
 
         // De-quantize.
@@ -314,7 +324,7 @@ bool Decoder::DecodeFullRes() {
             block_height);
       }
 
-      unpacked_idx += downsampled.columns() * 64;
+      unpacked_idx += horizontal_blocks * 64;
     }
 
     // Do YCbCr->RGB conversion for this block row if necessary.
