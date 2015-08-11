@@ -8,6 +8,8 @@
 
 #include "huffman.h"
 
+#include <algorithm>
+
 namespace himg {
 
 namespace {
@@ -43,7 +45,7 @@ class InBitstream {
     int bit = m_bit_pos;
 
     // Extract bit.
-    int x = (*buf & (1 << (7 - bit))) ? 1 : 0;
+    int x = (*buf >> bit) & 1;
     bit = (bit + 1) & 7;
     if (!bit) {
       ++buf;
@@ -58,10 +60,33 @@ class InBitstream {
 
   // Read bits from a bitstream.
   uint32_t ReadBits(int bits) {
-    // TODO(m): Optimize this.
     uint32_t x = 0;
-    for (int k = 0; k < bits; ++k)
-      x = (x << 1) | ReadBit();
+
+    // Get current stream state.
+    const uint8_t *buf = m_byte_ptr;
+    int bit = m_bit_pos;
+
+    // Extract bits.
+    // TODO(m): Optimize this!
+    int shift = 0;
+    while (bits) {
+      int bits_to_extract = std::min(bits, 8 - bit);
+      bits -= bits_to_extract;
+
+      uint8_t mask = 0xff >> (8 - bits_to_extract);
+      x = x | (static_cast<uint32_t>((*buf >> bit) & mask) << shift);
+      shift += bits_to_extract;
+
+      bit += bits_to_extract;
+      if (bit >= 8) {
+        bit -= 8;
+        ++buf;
+      }
+    }
+
+    // Store new stream state.
+    m_bit_pos = bit;
+    m_byte_ptr = buf;
 
     return x;
   }
@@ -84,11 +109,10 @@ class OutBitstream {
     int bit = m_bit_pos;
 
     // Append bits.
-    uint32_t mask = 1 << (bits - 1);
-    for (int count = 0; count < bits; ++count) {
-      *buf = (*buf & (0xff ^ (1 << (7 - bit)))) +
-             ((x & mask ? 1 : 0) << (7 - bit));
-      x <<= 1;
+    // TODO(m): Optimize this!
+    while (bits--) {
+      *buf = (*buf & (0xff ^ (1 << bit))) | ((x & 1) << bit);
+      x >>= 1;
       bit = (bit + 1) & 7;
       if (!bit) {
         ++buf;
@@ -205,10 +229,10 @@ void StoreTree(EncodeNode *node,
   }
 
   // Branch A.
-  StoreTree(node->child_a, symbols, stream, (code << 1) + 0, bits + 1);
+  StoreTree(node->child_a, symbols, stream, code, bits + 1);
 
   // Branch B.
-  StoreTree(node->child_b, symbols, stream, (code << 1) + 1, bits + 1);
+  StoreTree(node->child_b, symbols, stream, code + (1 << bits), bits + 1);
 }
 
 // Generate a Huffman tree.
