@@ -423,7 +423,8 @@ void Huffman::Uncompress(uint8_t *out,
 
   // Decode input stream.
   uint8_t *buf = out;
-  for (int k = 0; k < out_size;) {
+  const uint8_t *buf_end = out + out_size;
+  while (buf < buf_end) {
     // Traverse tree until we find a matching leaf node.
     // TODO(m): Improve the performance!
     DecodeNode *node = root;
@@ -436,44 +437,43 @@ void Huffman::Uncompress(uint8_t *out,
     }
 
     // Decode as RLE or plain copy.
-    uint8_t symbol;
-    int count;
+    int zero_count;
     switch (node->symbol) {
       case kSymTwoZeros: {
-        symbol = 0;
-        count = 2;
+        zero_count = 2;
         break;
       }
       case kSymUpTo6Zeros: {
-        symbol = 0;
-        count = static_cast<int>(stream.ReadBits(2)) + 3;
+        zero_count = static_cast<int>(stream.ReadBits(2)) + 3;
         break;
       }
       case kSymUpTo22Zeros: {
-        symbol = 0;
-        count = static_cast<int>(stream.ReadBits(4)) + 7;
+        zero_count = static_cast<int>(stream.ReadBits(4)) + 7;
         break;
       }
       case kSymUpTo278Zeros: {
-        symbol = 0;
-        count = static_cast<int>(stream.ReadBits(8)) + 23;
+        zero_count = static_cast<int>(stream.ReadBits(8)) + 23;
         break;
       }
       case kSymUpTo16662Zeros: {
-        symbol = 0;
-        count = static_cast<int>(stream.ReadBits(14)) + 279;
+        zero_count = static_cast<int>(stream.ReadBits(14)) + 279;
         break;
       }
       default: {
-        symbol = static_cast<uint8_t>(node->symbol);
-        count = 1;
+        // This is a single symbol copy, no RLE.
+        zero_count = 0;
         break;
       }
     }
 
-    for (int i = 0; i < count && (k + i) < out_size; ++i)
-      *buf++ = symbol;
-    k += count;
+    if (zero_count) {
+      if (buf + zero_count > buf_end)
+        break;
+      std::fill(buf, buf + zero_count, 0);
+      buf += zero_count;
+    } else {
+      *buf++ = static_cast<uint8_t>(node->symbol);
+    }
   }
 }
 
