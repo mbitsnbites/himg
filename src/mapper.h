@@ -33,7 +33,7 @@ class Mapper {
  protected:
   int NumberOfSingleByteMappingItems() const;
 
-  uint16_t m_mapping_table[128];
+  uint16_t m_mapping_table[127];
 };
 
 class LowResMapper : public Mapper {
@@ -41,6 +41,13 @@ class LowResMapper : public Mapper {
   // Generate a low-res image mapping table for the given quality.
   void InitForQuality(int quality);
 };
+
+class FullResMapper : public Mapper {
+ public:
+  // Generate a full-res image mapping table for the given quality.
+  void InitForQuality(int quality);
+};
+
 }  // namespace himg
 
 #endif  // MAPPER_H_

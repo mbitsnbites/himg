@@ -11,6 +11,8 @@
 
 #include <cstdint>
 
+#include "mapper.h"
+
 namespace himg {
 
 class Quantize {
@@ -43,14 +45,10 @@ class Quantize {
   bool SetMappingFunction(const uint8_t *in, int map_fun_size);
 
  private:
-  int NumberOfSingleByteMappingItems() const;
-  uint8_t MapTo8Bit(int16_t abs_x, bool negative) const;
-  int16_t UnmapFrom8Bit(uint8_t x) const;
-
   bool m_has_chroma;
   uint8_t m_shift_table[64];
   uint8_t m_chroma_shift_table[64];
-  uint16_t m_mapping_table[128];
+  FullResMapper m_mapper;
 };
 
 }  // namespace himg

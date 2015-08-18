@@ -39,31 +39,6 @@ const uint8_t kChromaShiftTableBase[64] = {
   124, 124, 126, 126, 125, 123, 122, 105
 };
 
-// This LUT is based on histogram studies. It is designed to give five bits of
-// precision (i.e. full precision) in the range 0-50, where almost all
-// coefficients can be represented, and above that it gives about four bits of
-// precision (this makes slightly better use of the eight bits compared to a
-// corresponding floating point representation, for instance).
-// TODO(m): Move this to the Mapping class instead!
-const int16_t kMappingTable[128] = {
-  1, 2, 3, 4, 5, 6, 7, 8,
-  9, 10, 11, 12, 13, 14, 15, 16,
-  17, 18, 19, 20, 21, 22, 23, 24,
-  25, 26, 27, 28, 29, 30, 31, 32,
-  33, 34, 35, 36, 37, 38, 39, 40,
-  41, 42, 43, 44, 45, 46, 47, 48,
-  49, 51, 52, 54, 57, 59, 62, 65,
-  68, 72, 76, 81, 86, 92, 98, 105,
-  113, 121, 130, 140, 151, 163, 176, 190,
-  205, 221, 239, 259, 280, 303, 327, 354,
-  382, 413, 446, 482, 520, 561, 605, 653,
-  703, 757, 815, 876, 942, 1013, 1087, 1167,
-  1252, 1342, 1438, 1540, 1649, 1764, 1885, 2015,
-  2151, 2296, 2450, 2612, 2783, 2965, 3156, 3358,
-  3571, 3796, 4032, 4282, 4545, 4821, 5112, 5418,
-  5740, 6078, 6433, 6806, 7198, 7608, 8039
-};
-
 struct QualityScale {
   int quality;
   int scale;
@@ -148,10 +123,8 @@ void Quantize::InitForQuality(uint8_t quality, bool has_chroma) {
   if (m_has_chroma)
     MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
 
-  // Create the 16-bit <-> 8-bit mapping table.
-  // TODO(m): Base this on the shift table.
-  for (int i = 0; i < 128; ++i)
-    m_mapping_table[i] = kMappingTable[i];
+  // Initialize the mapper.
+  m_mapper.InitForQuality(quality);
 }
 
 void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
@@ -164,11 +137,16 @@ void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
     int16_t round = shift != 0 ? 1 << (shift - 1) : 0;
 
     int16_t x = *in++;
-    bool negative = x < 0;
+
     // NOTE: We can not just shift negative numbers, since that will never
     // produce zero (e.g. -5 >> 7 == -1), so we shift the absolute value and
     // keep track of the sign.
-    *out++ = MapTo8Bit(((negative ? -x : x) + round) >> shift, negative);
+    if (x < 0)
+      x = -((-x + round) >> shift);
+    else
+      x = (x + round) >> shift;
+
+    *out++ = m_mapper.MapTo8Bit(x);
   }
 }
 
@@ -179,7 +157,7 @@ void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
 
   for (int i = 0; i < 64; ++i) {
     uint8_t shift = shift_table[i];
-    *out++ = UnmapFrom8Bit(*in++) << shift;
+    *out++ = m_mapper.UnmapFrom8Bit(*in++) << shift;
   }
 }
 
@@ -232,95 +210,15 @@ bool Quantize::SetConfiguration(
 }
 
 int Quantize::MappingFunctionSize() const {
-  // The mapping table requires one byte that tells how many items can be
-  // represented with a single byte, plus the actual single- and double-byte
-  // items.
-  int single_byte_items = NumberOfSingleByteMappingItems();
-  return 1 + single_byte_items + 2 * (128 - single_byte_items);
+  return m_mapper.MappingFunctionSize();
 }
 
 void Quantize::GetMappingFunction(uint8_t *out) const {
-  // Store the mapping table.
-  int single_byte_items = NumberOfSingleByteMappingItems();
-  *out++ = static_cast<uint8_t>(single_byte_items);
-  int i;
-  for (i = 0; i < single_byte_items; ++i)
-    *out++ = static_cast<uint8_t>(m_mapping_table[i]);
-  for (; i < 128; ++i) {
-    uint16_t x = m_mapping_table[i];
-    *out++ = static_cast<uint8_t>(x & 255);
-    *out++ = static_cast<uint8_t>(x >> 8);
-  }
+  m_mapper.GetMappingFunction(out);
 }
 
 bool Quantize::SetMappingFunction(const uint8_t *in, int map_fun_size) {
-  if (map_fun_size < 1)
-    return false;
-
-  // Restore the mapping table.
-  int single_byte_items = static_cast<int>(*in++);
-  int actual_size = 1 + single_byte_items + 2 * (128 - single_byte_items);
-  if (actual_size != map_fun_size)
-    return false;
-  int i;
-  for (i = 0; i < single_byte_items; ++i)
-    m_mapping_table[i] = static_cast<uint16_t>(*in++);
-  for (; i < 128; ++i) {
-    m_mapping_table[i] =
-        static_cast<uint16_t>(in[0]) | (static_cast<uint16_t>(in[1]) << 8);
-    in += 2;
-  }
-
-  return true;
-}
-
-int Quantize::NumberOfSingleByteMappingItems() const {
-  int single_byte_items;
-  for (single_byte_items = 0; single_byte_items < 128; ++single_byte_items) {
-    if (m_mapping_table[single_byte_items] >= 256)
-      break;
-  }
-  return single_byte_items;
-}
-
-uint8_t Quantize::MapTo8Bit(int16_t abs_x, bool negative) const {
-  // Special case: zero (it's quite common).
-  if (!abs_x) {
-    return 0;
-  }
-
-  // Look up the code.
-  // TODO(m): Do binary search.
-  uint8_t code;
-  for (code = 0; code <= 127; ++code) {
-    if (abs_x <= m_mapping_table[code])
-      break;
-  }
-
-  // Round to the closest match.
-  if (code >= 1 && code <= 127) {
-    if (abs_x - m_mapping_table[code - 1] <=
-        m_mapping_table[code] - abs_x)
-      code--;
-  }
-
-  // Combine code and sign bit.
-  if (negative)
-    return (code << 1) + 1;
-  else
-    return code <= 126 ? ((code + 1) << 1) : 254;
-}
-
-int16_t Quantize::UnmapFrom8Bit(uint8_t x) const {
-  // Special case: zero (it's quite common).
-  if (!x) {
-    return 0;
-  }
-
-  if (x & 1)
-    return -m_mapping_table[x >> 1];
-  else
-    return m_mapping_table[(x >> 1) - 1];
+  return m_mapper.SetMappingFunction(in, map_fun_size);
 }
 
 }  // namespace himg
