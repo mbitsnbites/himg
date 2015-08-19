@@ -84,14 +84,19 @@ bool Encoder::Encode(const uint8_t *data,
     color_space_data = ycbcr_data.data();
   }
 
-  // Lowres data.
+  // Generate & encode the mapping function for the low resolution image.
   m_low_res_mapper.InitForQuality(m_quality);
   EncodeLowResMappingFunction();
+
+  // Low resolution data.
   EncodeLowRes(color_space_data, width, height, pixel_stride, num_channels);
 
   // Generate the quantization configuration for the full resolution data.
   m_quantize.InitForQuality(m_quality, m_use_ycbcr);
   EncodeQuantizationConfig();
+
+  // Generate & encode the mapping function for the full resolution image.
+  m_full_res_mapper.InitForQuality(m_quality);
   EncodeFullResMappingFunction();
 
   // Full resolution data.
@@ -239,7 +244,7 @@ void Encoder::EncodeFullResMappingFunction() {
   m_packed_data.push_back('A');
   m_packed_data.push_back('P');
 
-  int map_fun_size = m_quantize.MappingFunctionSize();
+  int map_fun_size = m_full_res_mapper.MappingFunctionSize();
   m_packed_data.push_back(map_fun_size & 255);
   m_packed_data.push_back((map_fun_size >> 8) & 255);
   m_packed_data.push_back((map_fun_size >> 16) & 255);
@@ -247,7 +252,7 @@ void Encoder::EncodeFullResMappingFunction() {
 
   int map_fun_base = static_cast<int>(m_packed_data.size());
   m_packed_data.resize(map_fun_base + map_fun_size);
-  m_quantize.GetMappingFunction(&m_packed_data[map_fun_base]);
+  m_full_res_mapper.GetMappingFunction(&m_packed_data[map_fun_base]);
 }
 
 void Encoder::EncodeFullRes(const uint8_t *data,
@@ -309,7 +314,7 @@ void Encoder::EncodeFullRes(const uint8_t *data,
 
         // Quantize.
         uint8_t packed[64];
-        m_quantize.Pack(packed, buf1, is_chroma_channel);
+        m_quantize.Pack(packed, buf1, is_chroma_channel, m_full_res_mapper);
 
         // Store quantized data in the unpacked buffer.
         for (int i = 0; i < 64; ++i) {

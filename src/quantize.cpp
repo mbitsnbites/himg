@@ -122,12 +122,12 @@ void Quantize::InitForQuality(uint8_t quality, bool has_chroma) {
   MakeShiftTable(m_shift_table, kShiftTableBase, quality);
   if (m_has_chroma)
     MakeShiftTable(m_chroma_shift_table, kChromaShiftTableBase, quality);
-
-  // Initialize the mapper.
-  m_mapper.InitForQuality(quality);
 }
 
-void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
+void Quantize::Pack(uint8_t *out,
+                    const int16_t *in,
+                    bool chroma_channel,
+                    const Mapper &mapper) {
   // Select which shift table to use.
   const uint8_t *shift_table =
       chroma_channel ? m_chroma_shift_table : m_shift_table;
@@ -146,18 +146,21 @@ void Quantize::Pack(uint8_t *out, const int16_t *in, bool chroma_channel) {
     else
       x = (x + round) >> shift;
 
-    *out++ = m_mapper.MapTo8Bit(x);
+    *out++ = mapper.MapTo8Bit(x);
   }
 }
 
-void Quantize::Unpack(int16_t *out, const uint8_t *in, bool chroma_channel) {
+void Quantize::Unpack(int16_t *out,
+                      const uint8_t *in,
+                      bool chroma_channel,
+                      const Mapper &mapper) {
   // Select which shift table to use.
   const uint8_t *shift_table =
       chroma_channel ? m_chroma_shift_table : m_shift_table;
 
   for (int i = 0; i < 64; ++i) {
     uint8_t shift = shift_table[i];
-    *out++ = m_mapper.UnmapFrom8Bit(*in++) << shift;
+    *out++ = mapper.UnmapFrom8Bit(*in++) << shift;
   }
 }
 
@@ -207,18 +210,6 @@ bool Quantize::SetConfiguration(
   }
 
   return true;
-}
-
-int Quantize::MappingFunctionSize() const {
-  return m_mapper.MappingFunctionSize();
-}
-
-void Quantize::GetMappingFunction(uint8_t *out) const {
-  m_mapper.GetMappingFunction(out);
-}
-
-bool Quantize::SetMappingFunction(const uint8_t *in, int map_fun_size) {
-  return m_mapper.SetMappingFunction(in, map_fun_size);
 }
 
 }  // namespace himg

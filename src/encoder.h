@@ -57,6 +57,7 @@ class Encoder {
   bool m_use_ycbcr;
   Quantize m_quantize;
   LowResMapper m_low_res_mapper;
+  FullResMapper m_full_res_mapper;
   std::vector<Downsampled> m_downsampled;
   std::vector<uint8_t> m_packed_data;
 };

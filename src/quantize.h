@@ -21,10 +21,16 @@ class Quantize {
   void InitForQuality(uint8_t quality, bool has_chroma);
 
   // Pack to clamped signed magnitude based on the shift table.
-  void Pack(uint8_t *out, const int16_t *in, bool chroma_channel);
+  void Pack(uint8_t *out,
+            const int16_t *in,
+            bool chroma_channel,
+            const Mapper &mapper);
 
   // Unpack to 16-bit twos complement based on the shift table.
-  void Unpack(int16_t *out, const uint8_t *in, bool chroma_channel);
+  void Unpack(int16_t *out,
+              const uint8_t *in,
+              bool chroma_channel,
+              const Mapper &mapper);
 
   // Get the required size for the quantization configuration (in bytes).
   int ConfigurationSize() const;
@@ -35,20 +41,10 @@ class Quantize {
   // Set the quantization configuration.
   bool SetConfiguration(const uint8_t *in, int config_size, bool has_chroma);
 
-  // Get the required size for the mapping function (in bytes).
-  int MappingFunctionSize() const;
-
-  // Get the mapping function.
-  void GetMappingFunction(uint8_t *out) const;
-
-  // Set the mapping function.
-  bool SetMappingFunction(const uint8_t *in, int map_fun_size);
-
  private:
   bool m_has_chroma;
   uint8_t m_shift_table[64];
   uint8_t m_chroma_shift_table[64];
-  FullResMapper m_mapper;
 };
 
 }  // namespace himg

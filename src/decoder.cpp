@@ -234,7 +234,7 @@ bool Decoder::DecodeFullResMappingFunction() {
   m_packed_idx += chunk_size;
 
   // Restore the mapping function.
-  return m_quantize.SetMappingFunction(chunk_data, chunk_size);
+  return m_full_res_mapper.SetMappingFunction(chunk_data, chunk_size);
 }
 
 bool Decoder::DecodeFullRes() {
@@ -298,7 +298,7 @@ bool Decoder::DecodeFullRes() {
 
         // De-quantize.
         int16_t buf1[64];
-        m_quantize.Unpack(buf1, packed, is_chroma_channel);
+        m_quantize.Unpack(buf1, packed, is_chroma_channel, m_full_res_mapper);
 
         // Inverse transform.
         int16_t buf0[64];
