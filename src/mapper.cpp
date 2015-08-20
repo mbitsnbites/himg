@@ -150,8 +150,8 @@ uint8_t Mapper::MapTo8Bit(int16_t x) const {
 
   uint16_t abs_x = static_cast<uint16_t>(std::abs(x));
 
+  // Find the best matching table index.
   // TODO(m): Use binary search instead of O(n) search.
-  // TODO(m): The index should start at zero (0), not one (1)...
   uint8_t mapped;
   for (mapped = 1; mapped < kMappingTableEntires - 1; ++mapped) {
     if (abs_x < m_mapping_table[mapped]) {
@@ -163,6 +163,9 @@ uint8_t Mapper::MapTo8Bit(int16_t x) const {
     }
   }
 
+  // Encode the table index as a packed 8-bit code.
+  if (mapped < kMappingTableEntires)
+    ++mapped;
   return x >= 0 ? mapped : static_cast<uint8_t>(-static_cast<int8_t>(mapped));
 }
 
@@ -170,10 +173,13 @@ int16_t Mapper::UnmapFrom8Bit(uint8_t x) const {
   if (!x)
     return 0;
 
+  // Turn x into a valid table index.
   bool negative = (x & 128) != 0;
   if (negative)
     x = static_cast<uint8_t>(-static_cast<int8_t>(x));
+  --x;
 
+  // Look up the 16-bit value, and apply the sign.
   int16_t value = static_cast<int16_t>(m_mapping_table[x]);
   return negative ? -value : value;
 }
