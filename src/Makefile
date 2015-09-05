@@ -26,7 +26,7 @@ ALL_OBJS = $(LIB_OBJS) chimg.o dhimg.o
 
 .PHONY: all clean
 
-all: chimg dhimg
+all: chimg dhimg benchmark
 
 clean:
 	rm -rf chimg dhimg libhimg.a $(ALL_OBJS)
@@ -36,6 +36,9 @@ chimg: chimg.o libhimg.a
 
 dhimg: dhimg.o libhimg.a
 	$(CPP) $(LFLAGS) -o dhimg dhimg.o -L. -lhimg -lfreeimage
+
+benchmark: benchmark.o libhimg.a
+	$(CPP) $(LFLAGS) -o benchmark benchmark.o -L. -lhimg -lfreeimage
 
 libhimg.a: $(LIB_OBJS)
 	$(AR) $(ARFLAGS) $@ $(LIB_OBJS)
