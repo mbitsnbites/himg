@@ -40,6 +40,12 @@ class TimeMeasure {
   std::chrono::system_clock::time_point m_start;
 };
 
+bool IsHimg(const std::vector<uint8_t> &buffer) {
+  return buffer.size() >= 12 && buffer[0] == 'R' && buffer[1] == 'I' &&
+         buffer[2] == 'F' && buffer[3] == 'F' && buffer[8] == 'H' &&
+         buffer[9] == 'I' && buffer[10] == 'M' && buffer[11] == 'G';
+}
+
 void ShowUsage(const char *arg0) {
   std::cout << "Usage: " << arg0 << " [-d][-e] image" << std::endl;
   std::cout << "  -d Decode (default)" << std::endl;
@@ -109,12 +115,21 @@ int main(int argc, const char **argv) {
 
     if (benchmark_mode == Decode) {
       // Decode the image.
-      // TODO(m): Add support for other file format decoding (FreeImage,
-      // libjpeg-turbo etc).
-      himg::Decoder decoder;
-      if (!decoder.Decode(buffer.data(), buffer.size())) {
-        std::cout << "Unable to decode image." << std::endl;
-        return -1;
+      if (IsHimg(buffer)) {
+        // Use the HIMG decoder.
+        himg::Decoder decoder;
+        if (!decoder.Decode(buffer.data(), buffer.size())) {
+          std::cout << "Unable to decode image." << std::endl;
+          return -1;
+        }
+      } else {
+        // Use FreeImage to decode.
+        // TODO(m): Add support for other decoders (libjpeg-turbo!).
+        FIMEMORY* mem = FreeImage_OpenMemory(static_cast<BYTE *>(buffer.data()), buffer.size());
+        FREE_IMAGE_FORMAT format = FreeImage_GetFIFFromFilename(file_name.c_str());
+        FIBITMAP *bitmap = FreeImage_LoadFromMemory(format, mem);
+        FreeImage_Unload(bitmap);
+        FreeImage_CloseMemory(mem);
       }
     } else {
       // TODO(m): Implement me!
