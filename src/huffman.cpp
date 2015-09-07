@@ -10,6 +10,16 @@
 
 #include <algorithm>
 
+// Branch optimization macros.
+#if defined(__GNUC__)
+# define LIKELY(expr) __builtin_expect(!!(expr), 1)
+# define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
+#else
+# define LIKELY(expr) (expr)
+# define UNLIKELY(expr) (expr)
+#endif
+
+
 namespace himg {
 
 namespace {
@@ -91,6 +101,19 @@ class InBitstream {
     return x;
   }
 
+  // Peek eight bits from a bitstream (read without advancing the pointer).
+  uint32_t Peek8Bits() {
+    uint32_t lo = *m_byte_ptr, hi = m_byte_ptr[1];
+    return (((hi << 8) | lo) >> m_bit_pos) & 255;
+  }
+
+  // Advance the pointer by N bits.
+  void Advance(int bits) {
+    int new_bit_pos = m_bit_pos + bits;
+    m_bit_pos = new_bit_pos & 7;
+    m_byte_ptr += new_bit_pos >> 3;
+  }
+
  private:
   const uint8_t *m_byte_ptr;
   int m_bit_pos;
@@ -155,6 +178,12 @@ struct EncodeNode {
 struct DecodeNode {
   DecodeNode *child_a, *child_b;
   int symbol;
+};
+
+struct DecodeLutEntry {
+  DecodeNode *node;
+  int symbol;
+  int bits;
 };
 
 // Calculate (sorted) histogram for a block of data.
@@ -294,7 +323,12 @@ void MakeTree(SymbolInfo *sym, OutBitstream *stream) {
 }
 
 // Recover a Huffman tree from a bitstream.
-DecodeNode *RecoverTree(DecodeNode *nodes, InBitstream *stream, int *nodenum) {
+DecodeNode *RecoverTree(DecodeNode *nodes,
+                        InBitstream *stream,
+                        int *nodenum,
+                        DecodeLutEntry *lut,
+                        uint32_t code,
+                        int bits) {
   // Pick a node from the node array.
   DecodeNode *this_node = &nodes[*nodenum];
   *nodenum = *nodenum + 1;
@@ -307,16 +341,39 @@ DecodeNode *RecoverTree(DecodeNode *nodes, InBitstream *stream, int *nodenum) {
   // Is this a leaf node?
   if (stream->ReadBit()) {
     // Get symbol from tree description and store in lead node.
-    this_node->symbol = static_cast<int>(stream->ReadBits(kSymbolSize));
+    int symbol = static_cast<int>(stream->ReadBits(kSymbolSize));
+    this_node->symbol = symbol;
+
+    if (bits <= 8) {
+      // Fill out the LUT for this symbol, including all permutations of the
+      // upper bits.
+      uint32_t dups = 256 >> bits;
+      for (uint32_t i = 0; i < dups; ++i) {
+        DecodeLutEntry *lut_entry = &lut[(i << bits) | code];
+        lut_entry->node = nullptr;
+        lut_entry->bits = bits;
+        lut_entry->symbol = symbol;
+      }
+    }
 
     return this_node;
   }
 
+  if (bits == 8) {
+    // Add a non-terminated entry in the LUT (i.e. one that points into the tree
+    // rather than giving a symbol).
+    DecodeLutEntry *lut_entry = &lut[code];
+    lut_entry->node = this_node;
+    lut_entry->bits = 8;
+    lut_entry->symbol = 0;
+  }
+
   // Get branch A.
-  this_node->child_a = RecoverTree(nodes, stream, nodenum);
+  this_node->child_a = RecoverTree(nodes, stream, nodenum, lut, code, bits + 1);
 
   // Get branch B.
-  this_node->child_b = RecoverTree(nodes, stream, nodenum);
+  this_node->child_b =
+      RecoverTree(nodes, stream, nodenum, lut, code + (1 << bits), bits + 1);
 
   return this_node;
 }
@@ -419,60 +476,76 @@ void Huffman::Uncompress(uint8_t *out,
   // Recover Huffman tree.
   int node_count = 0;
   DecodeNode nodes[kMaxTreeNodes];
-  DecodeNode *root = RecoverTree(nodes, &stream, &node_count);
+  DecodeLutEntry decode_lut[256];
+  RecoverTree(nodes, &stream, &node_count, decode_lut, 0, 0);
 
   // Decode input stream.
   uint8_t *buf = out;
   const uint8_t *buf_end = out + out_size;
   while (buf < buf_end) {
-    // Traverse tree until we find a matching leaf node.
-    // TODO(m): Improve the performance!
-    DecodeNode *node = root;
-    while (node->symbol < 0) {
-      // Get next node.
-      if (stream.ReadBit())
-        node = node->child_b;
-      else
-        node = node->child_a;
+    int symbol;
+
+    // Peek 8 bits from the stream and use it to look up a potential symbol in
+    // the LUT (codes that are eight bits or shorter are very common, so we have
+    // a high hit rate in the LUT).
+    const auto &lut_entry = decode_lut[stream.Peek8Bits()];
+    stream.Advance(lut_entry.bits);
+    if (LIKELY(lut_entry.node == nullptr)) {
+      // Fast case: We found the symbol in the LUT.
+      symbol = lut_entry.symbol;
+    } else {
+      // Slow case: Traverse the tree from 8 bits code length until we find a
+      // leaf node.
+      DecodeNode *node = lut_entry.node;
+      while (node->symbol < 0) {
+        // Get next node.
+        if (stream.ReadBit())
+          node = node->child_b;
+        else
+          node = node->child_a;
+      }
+      symbol = node->symbol;
     }
 
     // Decode as RLE or plain copy.
-    int zero_count;
-    switch (node->symbol) {
-      case kSymTwoZeros: {
-        zero_count = 2;
-        break;
+    if (LIKELY(symbol <= 255)) {
+      // Plain copy.
+      *buf++ = static_cast<uint8_t>(symbol);
+    } else {
+      // Symbols >= 256 are RLE tokens.
+      int zero_count;
+      switch (symbol) {
+        case kSymTwoZeros: {
+          zero_count = 2;
+          break;
+        }
+        case kSymUpTo6Zeros: {
+          zero_count = static_cast<int>(stream.ReadBits(2)) + 3;
+          break;
+        }
+        case kSymUpTo22Zeros: {
+          zero_count = static_cast<int>(stream.ReadBits(4)) + 7;
+          break;
+        }
+        case kSymUpTo278Zeros: {
+          zero_count = static_cast<int>(stream.ReadBits(8)) + 23;
+          break;
+        }
+        case kSymUpTo16662Zeros: {
+          zero_count = static_cast<int>(stream.ReadBits(14)) + 279;
+          break;
+        }
+        default: {
+          // Note: The default should never happen -> abort!
+          zero_count = buf_end - buf + 1;
+          break;
+        }
       }
-      case kSymUpTo6Zeros: {
-        zero_count = static_cast<int>(stream.ReadBits(2)) + 3;
-        break;
-      }
-      case kSymUpTo22Zeros: {
-        zero_count = static_cast<int>(stream.ReadBits(4)) + 7;
-        break;
-      }
-      case kSymUpTo278Zeros: {
-        zero_count = static_cast<int>(stream.ReadBits(8)) + 23;
-        break;
-      }
-      case kSymUpTo16662Zeros: {
-        zero_count = static_cast<int>(stream.ReadBits(14)) + 279;
-        break;
-      }
-      default: {
-        // This is a single symbol copy, no RLE.
-        zero_count = 0;
-        break;
-      }
-    }
 
-    if (zero_count) {
-      if (buf + zero_count > buf_end)
+      if (UNLIKELY(buf + zero_count > buf_end))
         break;
       std::fill(buf, buf + zero_count, 0);
       buf += zero_count;
-    } else {
-      *buf++ = static_cast<uint8_t>(node->symbol);
     }
   }
 }
