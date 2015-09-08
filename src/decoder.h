@@ -6,8 +6,8 @@
 // See LICENSE for details.
 //-----------------------------------------------------------------------------
 
-#ifndef ENCODER_H_
-#define ENCODER_H_
+#ifndef DECODER_H_
+#define DECODER_H_
 
 #include <cstdint>
 #include <vector>
@@ -64,4 +64,4 @@ class Decoder {
 
 }  // namespace himg
 
-#endif  // ENCODER_H_
+#endif  // DECODER_H_
