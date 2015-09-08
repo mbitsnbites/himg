@@ -46,7 +46,8 @@ const int kMaxTreeDataSize = ((2 + kSymbolSize) * kNumSymbols + 7) / 8;
 class InBitstream {
  public:
   // Initialize a bitstream.
-  explicit InBitstream(const uint8_t *buf) : m_byte_ptr(buf), m_bit_pos(0) {}
+  InBitstream(const uint8_t *buf, int size)
+      : m_byte_ptr(buf), m_bit_pos(0), m_end_ptr(buf + size) {}
 
   // Read one bit from a bitstream.
   int ReadBit() {
@@ -114,9 +115,17 @@ class InBitstream {
     m_byte_ptr += new_bit_pos >> 3;
   }
 
+  bool AtTheEnd() const {
+    // This is a rought estimate that we have reached the end of the input
+    // buffer (not too short, and not too far).
+    return (m_byte_ptr == m_end_ptr && m_bit_pos == 0) ||
+           (m_byte_ptr == (m_end_ptr - 1) && m_bit_pos > 0);
+  }
+
  private:
   const uint8_t *m_byte_ptr;
   int m_bit_pos;
+  const uint8_t *m_end_ptr;
 };
 
 class OutBitstream {
@@ -462,16 +471,16 @@ int Huffman::Compress(uint8_t *out, const uint8_t *in, int in_size) {
   return stream.Size();
 }
 
-void Huffman::Uncompress(uint8_t *out,
+bool Huffman::Uncompress(uint8_t *out,
                          const uint8_t *in,
                          int in_size,
                          int out_size) {
   // Do we have anything to decompress?
   if (in_size < 1)
-    return;
+    return out_size == 0;
 
   // Initialize bitstream.
-  InBitstream stream(in);
+  InBitstream stream(in, in_size);
 
   // Recover Huffman tree.
   int node_count = 0;
@@ -536,18 +545,20 @@ void Huffman::Uncompress(uint8_t *out,
           break;
         }
         default: {
-          // Note: The default should never happen -> abort!
-          zero_count = buf_end - buf + 1;
-          break;
+          // Note: This should never happen -> abort!
+          return false;
         }
       }
 
       if (UNLIKELY(buf + zero_count > buf_end))
-        break;
+        return false;
       std::fill(buf, buf + zero_count, 0);
       buf += zero_count;
     }
   }
+
+  // TODO(m): Add more robust read overflow checking in the main decoding loop.
+  return stream.AtTheEnd();
 }
 
 }  // namespace himg

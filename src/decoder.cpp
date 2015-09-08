@@ -371,7 +371,10 @@ bool Decoder::FindRIFFChunk(uint32_t fourcc, int *size) {
 
 bool Decoder::UncompressData(uint8_t *out, int out_size, int in_size) {
   // Uncompress data.
-  Huffman::Uncompress(out, m_packed_data + m_packed_idx, in_size, out_size);
+  if (!Huffman::Uncompress(out, m_packed_data + m_packed_idx, in_size, out_size)) {
+    std::cout << "Error: Invalid Huffman data.\n";
+    return false;
+  }
   m_packed_idx += in_size;
 
   return true;

@@ -18,7 +18,7 @@ class Huffman {
   static int MaxCompressedSize(int uncompressed_size);
 
   static int Compress(uint8_t *out, const uint8_t *in, int in_size);
-  static void Uncompress(uint8_t *out,
+  static bool Uncompress(uint8_t *out,
                          const uint8_t *in,
                          int in_size,
                          int out_size);
