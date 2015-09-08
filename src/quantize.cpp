@@ -228,14 +228,6 @@ bool Quantize::SetConfiguration(
     }
   }
 
-  std::cout << "Quantization shift table:\n";
-  for (int i = 0; i < 8; ++i) {
-    for (int j = 0; j < 8; ++j) {
-      std::cout << static_cast<int>(m_shift_table[i * 8 + j]) << " ";
-    }
-    std::cout << "\n";
-  }
-
   return true;
 }
 

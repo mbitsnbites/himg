@@ -29,7 +29,7 @@ ALL_OBJS = $(LIB_OBJS) chimg.o dhimg.o
 all: chimg dhimg benchmark
 
 clean:
-	rm -rf chimg dhimg libhimg.a $(ALL_OBJS)
+	rm -rf chimg dhimg benchmark libhimg.a $(ALL_OBJS)
 
 chimg: chimg.o libhimg.a
 	$(CPP) $(LFLAGS) -o chimg chimg.o -L. -lhimg -lfreeimage

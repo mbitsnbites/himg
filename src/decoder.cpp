@@ -166,9 +166,6 @@ bool Decoder::DecodeHeader() {
   m_num_channels = static_cast<int>(chunk_data[9]);
   m_use_ycbcr = chunk_data[10] != 0;
 
-  std::cout << "Image dimensions: " << m_width << "x" << m_height << " ("
-            << m_num_channels << " channels).\n";
-
   return true;
 }
 
@@ -211,9 +208,6 @@ bool Decoder::DecodeLowRes() {
                              num_cols,
                              m_low_res_mapper);
   }
-
-  std::cout << "Decoded lowres data " << num_cols << "x" << num_rows
-            << std::endl;
 
   return true;
 }
@@ -259,10 +253,11 @@ bool Decoder::DecodeFullRes() {
   // Uncompress all channels using Huffman.
   if (!UncompressData(unpacked_data.data(), unpacked_size, chunk_size))
     return false;
-  std::cout << "Uncompressed full res data.\n";
+
+  // Determine the number of horizontal blocks.
+  const int horizontal_blocks = (m_width + 7) >> 3;
 
   // Process all the 8x8 blocks.
-  int unpacked_idx = 0;
   for (int y = 0; y < m_height; y += 8) {
     // Vertical block coordinate (v).
     int v = y >> 3;
@@ -270,11 +265,12 @@ bool Decoder::DecodeFullRes() {
 
     // TODO(m): Do Huffman decompression of a single block row at a time.
 
+    int unpacked_idx = (v * m_num_channels) * horizontal_blocks * 64;
+
     // All channels are inteleaved per block row.
     for (int chan = 0; chan < m_num_channels; ++chan) {
       // Get the low-res (divided by 8x8) image for this channel.
       Downsampled &downsampled = m_downsampled[chan];
-      const int horizontal_blocks = downsampled.columns();
 
       // Create an inverse index LUT for reading back the interleaved elements.
       int deinterleave_index[64];
@@ -374,8 +370,6 @@ bool Decoder::FindRIFFChunk(uint32_t fourcc, int *size) {
 
 bool Decoder::UncompressData(uint8_t *out, int out_size, int in_size) {
   // Uncompress data.
-  std::cout << "Unpacking " << in_size << " Huffman compressed bytes."
-            << std::endl;
   Huffman::Uncompress(out, m_packed_data + m_packed_idx, in_size, out_size);
   m_packed_idx += in_size;
 
