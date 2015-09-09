@@ -61,6 +61,7 @@ bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
   m_packed_idx = 0;
 
   m_unpacked_data.clear();
+  m_downsampled.clear();
 
   // Check that this is a RIFF HIMG file.
   if (!DecodeRIFFStart()) {

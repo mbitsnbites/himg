@@ -104,12 +104,13 @@ int main(int argc, const char **argv) {
   LoadFile(file_name, &buffer);
 
   FreeImage_Initialise();
+  himg::Decoder himg_decoder;
 
-  TimeMeasure total_measure;
-  total_measure.Start();
+  double min_dt = -1.0, total_t = 0.0;
+  for (int iteration = 1; iteration <= kNumIterations; ++iteration) {
+    std::cout << "Iteration " << iteration << "/" << kNumIterations
+              << std::endl;
 
-  double min_dt = -1.0;
-  for (int iteration = 0; iteration < kNumIterations; ++iteration) {
     TimeMeasure one_measure;
     one_measure.Start();
 
@@ -117,16 +118,17 @@ int main(int argc, const char **argv) {
       // Decode the image.
       if (IsHimg(buffer)) {
         // Use the HIMG decoder.
-        himg::Decoder decoder;
-        if (!decoder.Decode(buffer.data(), buffer.size())) {
+        if (!himg_decoder.Decode(buffer.data(), buffer.size())) {
           std::cout << "Unable to decode image." << std::endl;
           return -1;
         }
       } else {
         // Use FreeImage to decode.
         // TODO(m): Add support for other decoders (libjpeg-turbo!).
-        FIMEMORY* mem = FreeImage_OpenMemory(static_cast<BYTE *>(buffer.data()), buffer.size());
-        FREE_IMAGE_FORMAT format = FreeImage_GetFIFFromFilename(file_name.c_str());
+        FIMEMORY *mem = FreeImage_OpenMemory(static_cast<BYTE *>(buffer.data()),
+                                             buffer.size());
+        FREE_IMAGE_FORMAT format =
+            FreeImage_GetFIFFromFilename(file_name.c_str());
         FIBITMAP *bitmap = FreeImage_LoadFromMemory(format, mem);
         FreeImage_Unload(bitmap);
         FreeImage_CloseMemory(mem);
@@ -139,10 +141,10 @@ int main(int argc, const char **argv) {
     if (min_dt < 0.0 || dt < min_dt) {
       min_dt = dt;
     }
+    total_t += dt;
   }
 
-  double average =
-      total_measure.Duration() / static_cast<double>(kNumIterations);
+  double average = total_t / static_cast<double>(kNumIterations);
   std::cout << "    Min: " << min_dt << " ms\n";
   std::cout << "Average: " << average << " ms\n";
 
@@ -150,4 +152,3 @@ int main(int argc, const char **argv) {
 
   return 0;
 }
-
