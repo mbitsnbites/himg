@@ -6,11 +6,14 @@
 # See LICENSE for details.
 ###############################################################################
 
+DBG_FLAGS = -g
+OPT_FLAGS = -O3 -funroll-loops
+
 CPP = g++
-CPPFLAGS = -c -W -Wall -g -O3 -funroll-loops -std=c++11
-AR = ar
+CPPFLAGS = -c -W -Wall $(DBG_FLAGS) $(OPT_FLAGS) -std=c++11
+AR = gcc-ar
 ARFLAGS = rcs
-LFLAGS = -g
+LFLAGS = $(DBG_FLAGS) $(OPT_FLAGS)
 
 LIB_OBJS = common.o \
            decoder.o \
@@ -22,14 +25,17 @@ LIB_OBJS = common.o \
            quantize.o \
            ycbcr.o
 
-ALL_OBJS = $(LIB_OBJS) chimg.o dhimg.o
+ALL_OBJS = $(LIB_OBJS) benchmark.o chimg.o dhimg.o
 
 .PHONY: all clean
 
 all: chimg dhimg benchmark
 
 clean:
-	rm -rf chimg dhimg benchmark libhimg.a $(ALL_OBJS)
+	rm -rf benchmark chimg dhimg libhimg.a $(ALL_OBJS)
+
+benchmark: benchmark.o libhimg.a
+	$(CPP) $(LFLAGS) -o benchmark benchmark.o -L. -lhimg -lfreeimage
 
 chimg: chimg.o libhimg.a
 	$(CPP) $(LFLAGS) -o chimg chimg.o -L. -lhimg -lfreeimage
@@ -37,11 +43,11 @@ chimg: chimg.o libhimg.a
 dhimg: dhimg.o libhimg.a
 	$(CPP) $(LFLAGS) -o dhimg dhimg.o -L. -lhimg -lfreeimage
 
-benchmark: benchmark.o libhimg.a
-	$(CPP) $(LFLAGS) -o benchmark benchmark.o -L. -lhimg -lfreeimage
-
 libhimg.a: $(LIB_OBJS)
 	$(AR) $(ARFLAGS) $@ $(LIB_OBJS)
+
+benchmark.o: benchmark.cpp decoder.h encoder.h
+	$(CPP) $(CPPFLAGS) -o $@ $<
 
 chimg.o: chimg.cpp encoder.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
@@ -55,7 +61,7 @@ common.o: common.cpp common.h
 decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman.h mapper.h quantize.h ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-downsampled.o: downsampled.cpp downsampled.h
+downsampled.o: downsampled.cpp downsampled.h mapper.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 encoder.o: encoder.cpp common.h downsampled.h encoder.h hadamard.h huffman.h mapper.h quantize.h ycbcr.h
@@ -70,7 +76,7 @@ huffman.o: huffman.cpp huffman.h
 mapper.o: mapper.cpp mapper.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-quantize.o: quantize.cpp quantize.h
+quantize.o: quantize.cpp quantize.h mapper.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 ycbcr.o: ycbcr.cpp ycbcr.h
