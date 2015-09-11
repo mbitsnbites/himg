@@ -15,6 +15,8 @@ namespace himg {
 
 class Mapper {
  public:
+  Mapper();
+
   // Get the required size for the mapping function (in bytes).
   int MappingFunctionSize() const;
 
@@ -28,12 +30,15 @@ class Mapper {
   uint8_t MapTo8Bit(int16_t x) const;
 
   // Unmap an 8-bit value to a 16-bit.
-  int16_t UnmapFrom8Bit(uint8_t x) const;
+  int16_t UnmapFrom8Bit(uint8_t x) const {
+    return m_mapping_table[static_cast<int8_t>(x)];
+  }
 
  protected:
   int NumberOfSingleByteMappingItems() const;
 
-  uint16_t m_mapping_table[127];
+  int16_t *m_mapping_table;
+  int16_t m_mapping_table_full[256];
 };
 
 class LowResMapper : public Mapper {
