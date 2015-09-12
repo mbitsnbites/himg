@@ -10,15 +10,7 @@
 
 #include <algorithm>
 
-// Branch optimization macros.
-#if defined(__GNUC__)
-# define LIKELY(expr) __builtin_expect(!!(expr), 1)
-# define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
-#else
-# define LIKELY(expr) (expr)
-# define UNLIKELY(expr) (expr)
-#endif
-
+#include "common.h"
 
 namespace himg {
 

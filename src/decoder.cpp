@@ -30,10 +30,6 @@ uint32_t ToFourcc(const char name[4]) {
          (static_cast<uint32_t>(name[3]) << 24);
 }
 
-uint8_t ClampTo8Bit(int16_t x) {
-  return x >= 0 ? (x <= 255 ? static_cast<uint8_t>(x) : 255) : 0;
-}
-
 void RestoreChannelBlock(uint8_t *out,
                          const int16_t *in,
                          int pixel_stride,
@@ -41,11 +37,36 @@ void RestoreChannelBlock(uint8_t *out,
                          int block_width,
                          int block_height) {
   for (int y = 0; y < block_height; y++) {
-    for (int x = 0; x < block_width; x++) {
-      *out = ClampTo8Bit(*in++);
-      out += pixel_stride;
+    if (LIKELY(block_width == 8)) {
+      // Fast path.
+      for (int i = 0; i < 2; ++i) {
+        int16_t c1 = *in++;
+        int16_t c2 = *in++;
+        int16_t c3 = *in++;
+        int16_t c4 = *in++;
+        if (LIKELY(((c1 | c2 | c3 | c4) & 0xff00) == 0)) {
+          out[0] = static_cast<uint8_t>(c1);
+          out[pixel_stride] = static_cast<uint8_t>(c2);
+          out[2 * pixel_stride] = static_cast<uint8_t>(c3);
+          out[3 * pixel_stride] = static_cast<uint8_t>(c4);
+        } else {
+          out[0] = ClampTo8Bit(c1);
+          out[pixel_stride] = ClampTo8Bit(c2);
+          out[2 * pixel_stride] = ClampTo8Bit(c3);
+          out[3 * pixel_stride] = ClampTo8Bit(c4);
+        }
+        out += 4 * pixel_stride;
+      }
+    } else {
+      // Slow path.
+      for (int y = 0; y < block_height; y++) {
+        for (int x = 0; x < block_width; x++) {
+          *out = ClampTo8Bit(*in++);
+          out += pixel_stride;
+        }
+        in += 8 - block_width;
+      }
     }
-    in += 8 - block_width;
     out += row_stride - (pixel_stride * block_width);
   }
 }

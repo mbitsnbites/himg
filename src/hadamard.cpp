@@ -44,6 +44,7 @@ void Forward8(int16_t *out, const int16_t *in) {
 // Fast inverse Hadamard transform, optionally in place.
 template <int STRIDE, int SHIFT>
 void Inverse8(int16_t *out, const int16_t *in) {
+  // TODO(m): Investigate if we can to do this with 16-bit precision instead.
   int32_t a0 = in[0 * STRIDE] + in[4 * STRIDE];
   int32_t a1 = in[1 * STRIDE] + in[5 * STRIDE];
   int32_t a2 = in[2 * STRIDE] + in[6 * STRIDE];

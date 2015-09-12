@@ -8,15 +8,9 @@
 
 #include "ycbcr.h"
 
+#include "common.h"
+
 namespace himg {
-
-namespace {
-
-uint8_t ClampTo8Bit(int16_t x) {
-  return x >= 0 ? (x <= 255 ? static_cast<uint8_t>(x) : 255) : 0;
-}
-
-}  // namespace
 
 // We use a multiplier-less approximation:
 //   Y  = (R + 2G + B) / 4
@@ -70,9 +64,15 @@ void YCbCr::YCbCrToRGB(uint8_t *buf,
       int16_t g = y - ((cb + cr + 2) >> 2);
       int16_t b = g + cb;
       int16_t r = g + cr;
-      buf[0] = ClampTo8Bit(r);
-      buf[1] = ClampTo8Bit(g);
-      buf[2] = ClampTo8Bit(b);
+      if (LIKELY(((r | g | b) & 0xff00) == 0)) {
+        buf[0] = static_cast<uint8_t>(r);
+        buf[1] = static_cast<uint8_t>(g);
+        buf[2] = static_cast<uint8_t>(b);
+      } else {
+        buf[0] = ClampTo8Bit(r);
+        buf[1] = ClampTo8Bit(g);
+        buf[2] = ClampTo8Bit(b);
+      }
 
       // Note: Remaining channels are kept as-is (e.g. alpha).
 
