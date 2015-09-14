@@ -20,7 +20,7 @@ namespace himg {
 
 class Decoder {
  public:
-  Decoder();
+  Decoder(int max_threads = 0);
 
   bool Decode(const uint8_t *packed_data, int packed_size);
 
@@ -42,10 +42,14 @@ class Decoder {
   bool DecodeFullResMappingFunction();
   bool DecodeFullRes();
 
+  bool DecodeFullResBlockRow(const std::vector<uint8_t> &full_res_data, int y);
+
   bool DecodeRIFFChunk(uint32_t *fourcc, int *size);
   bool FindRIFFChunk(uint32_t fourcc, int *size);
 
   bool UncompressData(uint8_t *out, int out_size, int in_size);
+
+  int m_max_threads;
 
   Quantize m_quantize;
   LowResMapper m_low_res_mapper;

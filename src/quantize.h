@@ -30,7 +30,7 @@ class Quantize {
   void Unpack(int16_t *out,
               const uint8_t *in,
               bool chroma_channel,
-              const Mapper &mapper);
+              const Mapper &mapper) const;
 
   // Get the required size for the quantization configuration (in bytes).
   int ConfigurationSize() const;

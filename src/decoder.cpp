@@ -9,7 +9,10 @@
 #include "decoder.h"
 
 #include <algorithm>
+#include <atomic>
 #include <iostream>
+#include <thread>
+#include <vector>
 
 #include "common.h"
 #include "downsampled.h"
@@ -73,7 +76,12 @@ void RestoreChannelBlock(uint8_t *out,
 
 }  // namespace
 
-Decoder::Decoder() {
+Decoder::Decoder(int max_threads) {
+  if (max_threads <= 0) {
+    m_max_threads = std::thread::hardware_concurrency();
+  } else {
+    m_max_threads = max_threads;
+  }
 }
 
 bool Decoder::Decode(const uint8_t *packed_data, int packed_size) {
@@ -269,87 +277,125 @@ bool Decoder::DecodeFullRes() {
 
   // Prepare an unpacked buffer for all channels.
   const int num_blocks = ((m_width + 7) >> 3) * ((m_height + 7) >> 3);
-  const int unpacked_size = num_blocks * 64 * m_num_channels;
-  std::vector<uint8_t> unpacked_data(unpacked_size);
+  const int full_res_data_size = num_blocks * 64 * m_num_channels;
+  std::vector<uint8_t> full_res_data(full_res_data_size);
 
   // Uncompress all channels using Huffman.
-  if (!UncompressData(unpacked_data.data(), unpacked_size, chunk_size))
+  if (!UncompressData(full_res_data.data(), full_res_data_size, chunk_size))
     return false;
 
+  // Process all the 8x8 blocks, one row at a time or several rows in parallel.
+  {
+    std::atomic_int next_row(0);
+    std::atomic_bool success(true);
+
+    // One worker core lambda is run in each worker thread.
+    auto worker_core = [this, &full_res_data, &next_row, &success]() {
+      while (true) {
+        int y = next_row.fetch_add(8, std::memory_order_relaxed);
+        if (y >= m_height)
+          break;
+        if (!DecodeFullResBlockRow(full_res_data, y)) {
+          success = false;
+          break;
+        }
+      }
+    };
+
+    if (m_max_threads >= 2) {
+      // Start the worker threads.
+      int worker_threads = std::min((m_height + 7) / 8, m_max_threads);
+      std::vector<std::thread> threads;
+      for (int i = 0; i < worker_threads; ++i)
+        threads.push_back(std::thread(worker_core));
+
+      // Wait for all the worker threads to finish.
+      for (auto &thread : threads)
+        thread.join();
+    } else {
+      // Single threaded operation.
+      worker_core();
+    }
+
+    if (!success)
+      return false;
+  }
+
+  return true;
+}
+
+bool Decoder::DecodeFullResBlockRow(const std::vector<uint8_t> &full_res_data, int y) {
   // Determine the number of horizontal blocks.
   const int horizontal_blocks = (m_width + 7) >> 3;
 
-  // Process all the 8x8 blocks.
-  for (int y = 0; y < m_height; y += 8) {
-    // Vertical block coordinate (v).
-    int v = y >> 3;
-    int block_height = std::min(8, m_height - y);
+  // Vertical block coordinate (v).
+  int v = y >> 3;
+  int block_height = std::min(8, m_height - y);
 
-    // TODO(m): Do Huffman decompression of a single block row at a time.
+  // TODO(m): Do Huffman decompression of a single block row at a time.
 
-    int unpacked_idx = (v * m_num_channels) * horizontal_blocks * 64;
+  int unpacked_idx = (v * m_num_channels) * horizontal_blocks * 64;
 
-    // All channels are inteleaved per block row.
-    for (int chan = 0; chan < m_num_channels; ++chan) {
-      // Get the low-res (divided by 8x8) image for this channel.
-      Downsampled &downsampled = m_downsampled[chan];
+  // All channels are inteleaved per block row.
+  for (int chan = 0; chan < m_num_channels; ++chan) {
+    // Get the low-res (divided by 8x8) image for this channel.
+    Downsampled &downsampled = m_downsampled[chan];
 
-      // Create an inverse index LUT for reading back the interleaved elements.
-      int deinterleave_index[64];
-      for (int i = 0; i < 64; ++i)
-        deinterleave_index[kIndexLUT[i]] = i * horizontal_blocks;
+    // Create an inverse index LUT for reading back the interleaved elements.
+    int deinterleave_index[64];
+    for (int i = 0; i < 64; ++i)
+      deinterleave_index[kIndexLUT[i]] = i * horizontal_blocks;
 
-      bool is_chroma_channel = m_use_ycbcr && (chan == 1 || chan == 2);
+    bool is_chroma_channel = m_use_ycbcr && (chan == 1 || chan == 2);
 
-      for (int x = 0; x < m_width; x += 8) {
-        // Horizontal block coordinate (u).
-        int u = x >> 3;
-        int block_width = std::min(8, m_width - x);
+    for (int x = 0; x < m_width; x += 8) {
+      // Horizontal block coordinate (u).
+      int u = x >> 3;
+      int block_width = std::min(8, m_width - x);
 
-        // Get quantized data from the unpacked buffer.
-        // NOTE: This seems to be a bottleneck on x86 (64). The irregular
-        // addressing pattern and two levels of indirection seem to be the main
-        // issues. Loop unrolling (e.g. -funroll-loops) helps to some extent.
-        uint8_t packed[64];
-        {
-          const uint8_t *src = &unpacked_data[unpacked_idx + u];
-          for (int i = 0; i < 64; ++i)
-            packed[i] = src[deinterleave_index[i]];
-        }
-
-        // De-quantize.
-        int16_t buf1[64];
-        m_quantize.Unpack(buf1, packed, is_chroma_channel, m_full_res_mapper);
-
-        // Inverse transform.
-        int16_t buf0[64];
-        Hadamard::Inverse(buf0, buf1);
-
-        // Add low-res component.
-        int16_t lowres[64];
-        downsampled.GetLowresBlock(lowres, u, v);
-        for (int i = 0; i < 64; ++i) {
-          buf0[i] += lowres[i];
-        }
-
-        // Copy color channel to destination data.
-        RestoreChannelBlock(
-            &m_unpacked_data[(y * m_width + x) * m_num_channels + chan],
-            buf0,
-            m_num_channels,
-            m_width * m_num_channels,
-            block_width,
-            block_height);
+      // Get quantized data from the unpacked buffer.
+      // NOTE: This seems to be a bottleneck on x86 (64). The irregular
+      // addressing pattern and two levels of indirection seem to be the main
+      // issues. Loop unrolling (e.g. -funroll-loops) helps to some extent.
+      uint8_t packed[64];
+      {
+        const uint8_t *src = &full_res_data[unpacked_idx + u];
+        for (int i = 0; i < 64; ++i)
+          packed[i] = src[deinterleave_index[i]];
       }
 
-      unpacked_idx += horizontal_blocks * 64;
+      // De-quantize.
+      int16_t buf1[64];
+      m_quantize.Unpack(buf1, packed, is_chroma_channel, m_full_res_mapper);
+
+      // Inverse transform.
+      int16_t buf0[64];
+      Hadamard::Inverse(buf0, buf1);
+
+      // Add low-res component.
+      int16_t lowres[64];
+      downsampled.GetLowresBlock(lowres, u, v);
+      for (int i = 0; i < 64; ++i) {
+        buf0[i] += lowres[i];
+      }
+
+      // Copy color channel to destination data.
+      RestoreChannelBlock(
+          &m_unpacked_data[(y * m_width + x) * m_num_channels + chan],
+          buf0,
+          m_num_channels,
+          m_width * m_num_channels,
+          block_width,
+          block_height);
     }
 
-    // Do YCbCr->RGB conversion for this block row if necessary.
-    if (HasChroma()) {
-      uint8_t *buf = &m_unpacked_data[y * m_width * m_num_channels];
-      YCbCr::YCbCrToRGB(buf, m_width, block_height, m_num_channels);
-    }
+    unpacked_idx += horizontal_blocks * 64;
+  }
+
+  // Do YCbCr->RGB conversion for this block row if necessary.
+  if (HasChroma()) {
+    uint8_t *buf = &m_unpacked_data[y * m_width * m_num_channels];
+    YCbCr::YCbCrToRGB(buf, m_width, block_height, m_num_channels);
   }
 
   return true;

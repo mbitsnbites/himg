@@ -113,7 +113,7 @@ void Downsampled::SampleImage(const uint8_t *pixels,
   }
 }
 
-void Downsampled::GetLowresBlock(int16_t *out, int u, int v) {
+void Downsampled::GetLowresBlock(int16_t *out, int u, int v) const {
   // Pick out the four values in the corners of the block.
   int row1 = v;
   int row2 = std::min(m_rows - 1, v + 1);

@@ -153,7 +153,7 @@ void Quantize::Pack(uint8_t *out,
 void Quantize::Unpack(int16_t *out,
                       const uint8_t *in,
                       bool chroma_channel,
-                      const Mapper &mapper) {
+                      const Mapper &mapper) const {
   // Select which shift table to use.
   const uint8_t *shift_table =
       chroma_channel ? m_chroma_shift_table : m_shift_table;

@@ -22,7 +22,7 @@ class Downsampled {
 
   void SampleImage(const uint8_t *pixels, int stride, int width, int height);
 
-  void GetLowresBlock(int16_t *out, int u, int v);
+  void GetLowresBlock(int16_t *out, int u, int v) const;
 
   static int BlockDataSizePerChannel(int rows, int columns);
 

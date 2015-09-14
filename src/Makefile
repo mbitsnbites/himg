@@ -35,13 +35,13 @@ clean:
 	rm -rf benchmark chimg dhimg libhimg.a $(ALL_OBJS)
 
 benchmark: benchmark.o libhimg.a
-	$(CPP) $(LFLAGS) -o benchmark benchmark.o -L. -lhimg -lfreeimage
+	$(CPP) $(LFLAGS) -o benchmark benchmark.o -L. -lhimg -lfreeimage -lpthread
 
 chimg: chimg.o libhimg.a
-	$(CPP) $(LFLAGS) -o chimg chimg.o -L. -lhimg -lfreeimage
+	$(CPP) $(LFLAGS) -o chimg chimg.o -L. -lhimg -lfreeimage -lpthread
 
 dhimg: dhimg.o libhimg.a
-	$(CPP) $(LFLAGS) -o dhimg dhimg.o -L. -lhimg -lfreeimage
+	$(CPP) $(LFLAGS) -o dhimg dhimg.o -L. -lhimg -lfreeimage -lpthread
 
 libhimg.a: $(LIB_OBJS)
 	$(AR) $(ARFLAGS) $@ $(LIB_OBJS)
