@@ -32,8 +32,9 @@ class TimeMeasure {
   double Duration() const {
     std::chrono::system_clock::time_point t = std::chrono::system_clock::now();
     return static_cast<double>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(t - m_start)
-            .count());
+               std::chrono::duration_cast<std::chrono::microseconds>(
+                   t - m_start).count()) /
+           1000.0;
   }
 
  private:
