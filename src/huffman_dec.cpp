@@ -21,7 +21,10 @@ class InBitstream {
  public:
   // Initialize a bitstream.
   InBitstream(const uint8_t *buf, int size)
-      : m_byte_ptr(buf), m_bit_pos(0), m_end_ptr(buf + size) {}
+      : m_byte_ptr(buf),
+        m_bit_pos(0),
+        m_end_ptr(buf + size),
+        m_read_failed(false) {}
 
   // Read one bit from a bitstream.
   int ReadBit() {
@@ -41,6 +44,18 @@ class InBitstream {
     m_byte_ptr = buf;
 
     return x;
+  }
+
+  // Read one bit from a bitstream, with checking.
+  int ReadBitChecked() {
+    // Check that we don't read past the end.
+    if (UNLIKELY(m_byte_ptr >= m_end_ptr)) {
+      m_read_failed = true;
+      return 0;
+    }
+
+    // Ok, read...
+    return ReadBit();
   }
 
   // Read bits from a bitstream.
@@ -76,6 +91,21 @@ class InBitstream {
     return x;
   }
 
+  // Read bits from a bitstream, with checking.
+  uint32_t ReadBitsChecked(int bits) {
+    // Check that we don't read past the end.
+    int new_bit_pos = m_bit_pos + bits;
+    const uint8_t *new_byte_ptr = m_byte_ptr + (new_bit_pos >> 3);
+    if (UNLIKELY(new_byte_ptr > m_end_ptr ||
+                 (new_byte_ptr == m_end_ptr && ((new_bit_pos & 7) > 0)))) {
+      m_read_failed = true;
+      return 0;
+    }
+
+    // Ok, read...
+    return ReadBits(bits);
+  }
+
   // Peek eight bits from a bitstream (read without advancing the pointer).
   uint32_t Peek8Bits() {
     uint32_t lo = *m_byte_ptr, hi = m_byte_ptr[1];
@@ -96,10 +126,15 @@ class InBitstream {
            (m_byte_ptr == (m_end_ptr - 1) && m_bit_pos > 0);
   }
 
+  bool read_failed() const {
+    return m_read_failed;
+  }
+
  private:
   const uint8_t *m_byte_ptr;
   int m_bit_pos;
   const uint8_t *m_end_ptr;
+  bool m_read_failed;
 };
 
 // Used by the encoder for building the optimal Huffman tree.
@@ -138,9 +173,15 @@ DecodeNode *RecoverTree(DecodeNode *nodes,
   this_node->child_b = nullptr;
 
   // Is this a leaf node?
-  if (stream->ReadBit()) {
+  bool is_leaf = stream->ReadBitChecked() != 0;
+  if (UNLIKELY(stream->read_failed()))
+    return nullptr;
+  if (is_leaf) {
     // Get symbol from tree description and store in lead node.
-    int symbol = static_cast<int>(stream->ReadBits(kSymbolSize));
+    int symbol = static_cast<int>(stream->ReadBitsChecked(kSymbolSize));
+    if (UNLIKELY(stream->read_failed()))
+      return nullptr;
+
     this_node->symbol = symbol;
 
     if (bits <= 8) {
@@ -169,10 +210,14 @@ DecodeNode *RecoverTree(DecodeNode *nodes,
 
   // Get branch A.
   this_node->child_a = RecoverTree(nodes, stream, nodenum, lut, code, bits + 1);
+  if (UNLIKELY(!this_node->child_a))
+    return nullptr;
 
   // Get branch B.
   this_node->child_b =
       RecoverTree(nodes, stream, nodenum, lut, code + (1 << bits), bits + 1);
+  if (UNLIKELY(!this_node->child_b))
+    return nullptr;
 
   return this_node;
 }
@@ -194,12 +239,18 @@ bool HuffmanDec::Uncompress(uint8_t *out,
   int node_count = 0;
   DecodeNode nodes[kMaxTreeNodes];
   DecodeLutEntry decode_lut[256];
-  RecoverTree(nodes, &stream, &node_count, decode_lut, 0, 0);
+  DecodeNode *root = RecoverTree(nodes, &stream, &node_count, decode_lut, 0, 0);
+  if (UNLIKELY(!root))
+    return false;
 
   // Decode input stream.
   uint8_t *buf = out;
   const uint8_t *buf_end = out + out_size;
-  while (buf < buf_end) {
+
+  // We do the majority of the decoding in a fast, unchecked loop.
+  // Note: The longest supported code + RLE encoding is 32 + 14 bits ~= 6 bytes.
+  const uint8_t *buf_fast_end = buf_end - 6;
+  while (buf < buf_fast_end) {
     int symbol;
 
     // Peek 8 bits from the stream and use it to look up a potential symbol in
@@ -265,7 +316,63 @@ bool HuffmanDec::Uncompress(uint8_t *out,
     }
   }
 
-  // TODO(m): Add more robust read overflow checking in the main decoding loop.
+  // ...and we do the tail of the decoding in a slower, checked loop.
+  while (buf < buf_end) {
+    // Traverse the tree until we find a leaf node.
+    DecodeNode *node = root;
+    while (node->symbol < 0) {
+      // Get next node.
+      if (stream.ReadBitChecked())
+        node = node->child_b;
+      else
+        node = node->child_a;
+
+      if (UNLIKELY(stream.read_failed()))
+        return false;
+    }
+    int symbol = node->symbol;
+
+    // Decode as RLE or plain copy.
+    if (LIKELY(symbol <= 255)) {
+      // Plain copy.
+      *buf++ = static_cast<uint8_t>(symbol);
+    } else {
+      // Symbols >= 256 are RLE tokens.
+      int zero_count;
+      switch (symbol) {
+        case kSymTwoZeros: {
+          zero_count = 2;
+          break;
+        }
+        case kSymUpTo6Zeros: {
+          zero_count = static_cast<int>(stream.ReadBitsChecked(2)) + 3;
+          break;
+        }
+        case kSymUpTo22Zeros: {
+          zero_count = static_cast<int>(stream.ReadBitsChecked(4)) + 7;
+          break;
+        }
+        case kSymUpTo278Zeros: {
+          zero_count = static_cast<int>(stream.ReadBitsChecked(8)) + 23;
+          break;
+        }
+        case kSymUpTo16662Zeros: {
+          zero_count = static_cast<int>(stream.ReadBitsChecked(14)) + 279;
+          break;
+        }
+        default: {
+          // Note: This should never happen -> abort!
+          return false;
+        }
+      }
+
+      if (UNLIKELY(stream.read_failed() || buf + zero_count > buf_end))
+        return false;
+      std::fill(buf, buf + zero_count, 0);
+      buf += zero_count;
+    }
+  }
+
   return stream.AtTheEnd();
 }
 
