@@ -17,7 +17,7 @@
 #include "common.h"
 #include "downsampled.h"
 #include "hadamard.h"
-#include "huffman.h"
+#include "huffman_dec.h"
 #include "mapper.h"
 #include "quantize.h"
 #include "ycbcr.h"
@@ -438,7 +438,8 @@ bool Decoder::FindRIFFChunk(uint32_t fourcc, int *size) {
 
 bool Decoder::UncompressData(uint8_t *out, int out_size, int in_size) {
   // Uncompress data.
-  if (!Huffman::Uncompress(out, m_packed_data + m_packed_idx, in_size, out_size)) {
+  if (!HuffmanDec::Uncompress(
+          out, m_packed_data + m_packed_idx, in_size, out_size)) {
     std::cout << "Error: Invalid Huffman data.\n";
     return false;
   }

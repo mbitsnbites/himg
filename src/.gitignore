@@ -1,5 +1,7 @@
 *.o
 *.a
+benchmark
 chimg
 dhimg
 
+perf.data*

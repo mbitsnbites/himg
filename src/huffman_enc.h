@@ -6,24 +6,20 @@
 // See LICENSE for details.
 //-----------------------------------------------------------------------------
 
-#ifndef HUFFMAN_H_
-#define HUFFMAN_H_
+#ifndef HUFFMAN_ENC_H_
+#define HUFFMAN_ENC_H_
 
 #include <cstdint>
 
 namespace himg {
 
-class Huffman {
+class HuffmanEnc {
  public:
   static int MaxCompressedSize(int uncompressed_size);
 
   static int Compress(uint8_t *out, const uint8_t *in, int in_size);
-  static bool Uncompress(uint8_t *out,
-                         const uint8_t *in,
-                         int in_size,
-                         int out_size);
 };
 
 }  // namespace himg
 
-#endif  // HUFFMAN_H_
+#endif  // HUFFMAN_ENC_H_

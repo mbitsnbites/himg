@@ -14,7 +14,7 @@
 #include "common.h"
 #include "downsampled.h"
 #include "hadamard.h"
-#include "huffman.h"
+#include "huffman_enc.h"
 #include "mapper.h"
 #include "quantize.h"
 #include "ycbcr.h"
@@ -336,11 +336,11 @@ int Encoder::AppendPackedData(
     const uint8_t *unpacked_data, int unpacked_size) {
   const int packed_base_idx = static_cast<int>(m_packed_data.size());
   m_packed_data.resize(packed_base_idx + 4 +
-                       Huffman::MaxCompressedSize(unpacked_size));
+                       HuffmanEnc::MaxCompressedSize(unpacked_size));
   int packed_size =
-      Huffman::Compress(m_packed_data.data() + packed_base_idx + 4,
-                        unpacked_data,
-                        unpacked_size);
+      HuffmanEnc::Compress(m_packed_data.data() + packed_base_idx + 4,
+                           unpacked_data,
+                           unpacked_size);
   m_packed_data[packed_base_idx] = packed_size & 255;
   m_packed_data[packed_base_idx + 1] = (packed_size >> 8) & 255;
   m_packed_data[packed_base_idx + 2] = (packed_size >> 16) & 255;

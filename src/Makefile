@@ -20,7 +20,8 @@ LIB_OBJS = common.o \
            downsampled.o \
            encoder.o \
            hadamard.o \
-           huffman.o \
+           huffman_dec.o \
+           huffman_enc.o \
            mapper.o \
            quantize.o \
            ycbcr.o
@@ -58,19 +59,22 @@ dhimg.o: dhimg.cpp decoder.h
 common.o: common.cpp common.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman.h mapper.h quantize.h ycbcr.h
+decoder.o: decoder.cpp common.h downsampled.h decoder.h hadamard.h huffman_dec.h mapper.h quantize.h ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 downsampled.o: downsampled.cpp downsampled.h mapper.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-encoder.o: encoder.cpp common.h downsampled.h encoder.h hadamard.h huffman.h mapper.h quantize.h ycbcr.h
+encoder.o: encoder.cpp common.h downsampled.h encoder.h hadamard.h huffman_enc.h mapper.h quantize.h ycbcr.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 hadamard.o: hadamard.cpp hadamard.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
-huffman.o: huffman.cpp huffman.h
+huffman_dec.o: huffman_dec.cpp huffman_dec.h huffman_common.h
+	$(CPP) $(CPPFLAGS) -o $@ $<
+
+huffman_enc.o: huffman_enc.cpp huffman_enc.h huffman_common.h
 	$(CPP) $(CPPFLAGS) -o $@ $<
 
 mapper.o: mapper.cpp mapper.h
