@@ -51,7 +51,8 @@ class Encoder {
                      int pixel_stride,
                      int num_channels);
 
-  int AppendPackedData(const uint8_t *unpacked_data, int unpacked_size);
+  int AppendPackedData(
+      const uint8_t *unpacked_data, int unpacked_size, int block_size);
 
   int m_quality;
   bool m_use_ycbcr;

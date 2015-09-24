@@ -215,7 +215,7 @@ void Encoder::EncodeLowRes(const uint8_t *data,
   }
 
   // Compress data.
-  int packed_size = AppendPackedData(unpacked_data.data(), unpacked_size);
+  int packed_size = AppendPackedData(unpacked_data.data(), unpacked_size, 0);
   std::cout << "Low resolution data: " << packed_size << " bytes.\n";
 }
 
@@ -328,19 +328,22 @@ void Encoder::EncodeFullRes(const uint8_t *data,
   }
 
   // Compress all channels.
-  int packed_size = AppendPackedData(unpacked_data.data(), unpacked_size);
+  int block_size = m_downsampled[0].columns() * num_channels * 64;
+  int packed_size = AppendPackedData(
+      unpacked_data.data(), unpacked_size, block_size);
   std::cout << "Full resolution data: " << packed_size << " bytes.\n";
 }
 
 int Encoder::AppendPackedData(
-    const uint8_t *unpacked_data, int unpacked_size) {
+    const uint8_t *unpacked_data, int unpacked_size, int block_size) {
   const int packed_base_idx = static_cast<int>(m_packed_data.size());
   m_packed_data.resize(packed_base_idx + 4 +
                        HuffmanEnc::MaxCompressedSize(unpacked_size));
   int packed_size =
       HuffmanEnc::Compress(m_packed_data.data() + packed_base_idx + 4,
                            unpacked_data,
-                           unpacked_size);
+                           unpacked_size,
+                           block_size);
   m_packed_data[packed_base_idx] = packed_size & 255;
   m_packed_data[packed_base_idx + 1] = (packed_size >> 8) & 255;
   m_packed_data[packed_base_idx + 2] = (packed_size >> 16) & 255;

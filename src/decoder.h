@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "downsampled.h"
+#include "huffman_dec.h"
 #include "mapper.h"
 #include "quantize.h"
 
@@ -42,12 +43,10 @@ class Decoder {
   bool DecodeFullResMappingFunction();
   bool DecodeFullRes();
 
-  bool DecodeFullResBlockRow(const std::vector<uint8_t> &full_res_data, int y);
+  bool DecodeFullResBlockRow(const HuffmanDec &huffman_dec, int y);
 
   bool DecodeRIFFChunk(uint32_t *fourcc, int *size);
   bool FindRIFFChunk(uint32_t fourcc, int *size);
-
-  bool UncompressData(uint8_t *out, int out_size, int in_size);
 
   int m_max_threads;
 

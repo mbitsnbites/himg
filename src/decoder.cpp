@@ -17,7 +17,6 @@
 #include "common.h"
 #include "downsampled.h"
 #include "hadamard.h"
-#include "huffman_dec.h"
 #include "mapper.h"
 #include "quantize.h"
 #include "ycbcr.h"
@@ -225,9 +224,14 @@ bool Decoder::DecodeLowRes() {
   const int unpacked_size = channel_size * m_num_channels;
   std::vector<uint8_t> unpacked_data(unpacked_size);
 
-  // Uncompress source data.
-  if (!UncompressData(unpacked_data.data(), unpacked_size, chunk_size))
+  // Uncompress source Huffman data.
+  HuffmanDec huffman_dec(m_packed_data + m_packed_idx, chunk_size, 0);
+  if (!huffman_dec.Init() ||
+      !huffman_dec.Uncompress(unpacked_data.data(), unpacked_size)) {
+    std::cout << "Error: Invalid Huffman data.\n";
     return false;
+  }
+  m_packed_idx += chunk_size;
 
   // Initialize the downsampled version of each channel.
   for (int chan = 0; chan < m_num_channels; ++chan) {
@@ -275,14 +279,14 @@ bool Decoder::DecodeFullRes() {
   // Reserve space for the output data.
   m_unpacked_data.resize(m_width * m_height * m_num_channels);
 
-  // Prepare an unpacked buffer for all channels.
-  const int num_blocks = ((m_width + 7) >> 3) * ((m_height + 7) >> 3);
-  const int full_res_data_size = num_blocks * 64 * m_num_channels;
-  std::vector<uint8_t> full_res_data(full_res_data_size);
-
-  // Uncompress all channels using Huffman.
-  if (!UncompressData(full_res_data.data(), full_res_data_size, chunk_size))
+  // Prepare uncompression of the Huffman data.
+  const int huffman_block_size = ((m_width + 7) >> 3) * 64 * m_num_channels;
+  HuffmanDec huffman_dec(m_packed_data + m_packed_idx, chunk_size, huffman_block_size);
+  if (!huffman_dec.Init()) {
+    std::cout << "Error: Invalid Huffman data.\n";
     return false;
+  }
+  m_packed_idx += chunk_size;
 
   // Process all the 8x8 blocks, one row at a time or several rows in parallel.
   {
@@ -290,32 +294,31 @@ bool Decoder::DecodeFullRes() {
     std::atomic_bool success(true);
 
     // One worker core lambda is run in each worker thread.
-    auto worker_core = [this, &full_res_data, &next_row, &success]() {
+    auto worker_core = [this, &huffman_dec, &next_row, &success]() {
       while (true) {
         int y = next_row.fetch_add(8, std::memory_order_relaxed);
         if (y >= m_height)
           break;
-        if (!DecodeFullResBlockRow(full_res_data, y)) {
+        if (!DecodeFullResBlockRow(huffman_dec, y)) {
           success = false;
           break;
         }
       }
     };
 
-    if (m_max_threads >= 2) {
-      // Start the worker threads.
-      int worker_threads = std::min((m_height + 7) / 8, m_max_threads);
-      std::vector<std::thread> threads;
-      for (int i = 0; i < worker_threads; ++i)
-        threads.push_back(std::thread(worker_core));
+    // Start the worker threads (we start N - 1 new threads, and run one worker
+    // in the current thread).
+    int worker_threads = std::min((m_height + 7) / 8, m_max_threads);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < worker_threads - 1; ++i)
+      threads.push_back(std::thread(worker_core));
 
-      // Wait for all the worker threads to finish.
-      for (auto &thread : threads)
-        thread.join();
-    } else {
-      // Single threaded operation.
-      worker_core();
-    }
+    // One worker is always run in the current thread.
+    worker_core();
+
+    // Wait for all the worker threads to finish.
+    for (auto &thread : threads)
+      thread.join();
 
     if (!success)
       return false;
@@ -324,7 +327,7 @@ bool Decoder::DecodeFullRes() {
   return true;
 }
 
-bool Decoder::DecodeFullResBlockRow(const std::vector<uint8_t> &full_res_data, int y) {
+bool Decoder::DecodeFullResBlockRow(const HuffmanDec &huffman_dec, int y) {
   // Determine the number of horizontal blocks.
   const int horizontal_blocks = (m_width + 7) >> 3;
 
@@ -332,9 +335,17 @@ bool Decoder::DecodeFullResBlockRow(const std::vector<uint8_t> &full_res_data, i
   int v = y >> 3;
   int block_height = std::min(8, m_height - y);
 
-  // TODO(m): Do Huffman decompression of a single block row at a time.
+  // Prepare an unpacked buffer for all channels.
+  int full_res_data_size = horizontal_blocks * m_num_channels * 64;
+  std::vector<uint8_t> full_res_data(full_res_data_size);
 
-  int unpacked_idx = (v * m_num_channels) * horizontal_blocks * 64;
+  // Do Huffman decompression of a single block row.
+  if (!huffman_dec.UncompressBlock(full_res_data.data(), full_res_data_size, v)) {
+    std::cout << "Error: Invalid Huffman data.\n";
+    return false;
+  }
+
+  int unpacked_idx = 0;
 
   // All channels are inteleaved per block row.
   for (int chan = 0; chan < m_num_channels; ++chan) {
@@ -434,18 +445,6 @@ bool Decoder::FindRIFFChunk(uint32_t fourcc, int *size) {
 
   // We didn't find the chunk.
   return false;
-}
-
-bool Decoder::UncompressData(uint8_t *out, int out_size, int in_size) {
-  // Uncompress data.
-  HuffmanDec huffman_dec(m_packed_data + m_packed_idx, in_size);
-  if (!huffman_dec.Init() || !huffman_dec.Uncompress(out, out_size)) {
-    std::cout << "Error: Invalid Huffman data.\n";
-    return false;
-  }
-  m_packed_idx += in_size;
-
-  return true;
 }
 
 }  // namespace himg

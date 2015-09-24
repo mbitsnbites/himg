@@ -105,15 +105,36 @@ uint32_t HuffmanDec::BitStream::ReadBitsChecked(int bits) {
   return ReadBits(bits);
 }
 
-uint32_t HuffmanDec::BitStream::Peek8Bits() const {
-  uint32_t lo = *m_byte_ptr, hi = m_byte_ptr[1];
-  return (((hi << 8) | lo) >> m_bit_pos) & 255;
+uint8_t HuffmanDec::BitStream::Peek8Bits() const {
+  uint8_t lo = m_byte_ptr[0], hi = m_byte_ptr[1];
+  return ((hi << 8) | lo) >> m_bit_pos;
 }
 
-void HuffmanDec::BitStream::Advance(int bits) {
-  int new_bit_pos = m_bit_pos + bits;
+uint16_t HuffmanDec::BitStream::Read16BitsAligned() {
+  // TODO(m): Check that we don't read past the end.
+
+  AlignToByte();
+  uint16_t lo = m_byte_ptr[0], hi = m_byte_ptr[1];
+  m_byte_ptr += 2;
+  return (hi << 8) | lo;
+}
+
+void HuffmanDec::BitStream::AlignToByte() {
+  if (LIKELY(m_bit_pos)) {
+    m_bit_pos = 0;
+    ++m_byte_ptr;
+  }
+}
+void HuffmanDec::BitStream::Advance(int N) {
+  int new_bit_pos = m_bit_pos + N;
   m_bit_pos = new_bit_pos & 7;
   m_byte_ptr += new_bit_pos >> 3;
+}
+
+void HuffmanDec::BitStream::AdvanceBytes(int N) {
+  // TODO(m): Check that we don't read past the end.
+
+  m_byte_ptr += N;
 }
 
 bool HuffmanDec::BitStream::AtTheEnd() const {
@@ -191,8 +212,10 @@ HuffmanDec::DecodeNode *HuffmanDec::RecoverTree(int *nodenum,
   return this_node;
 }
 
-HuffmanDec::HuffmanDec(const uint8_t *in, int in_size)
+HuffmanDec::HuffmanDec(const uint8_t *in, int in_size, int block_size)
     : m_stream(in, in_size), m_root(nullptr) {
+  m_block_size = block_size > 0 ? block_size : in_size;
+  m_use_blocks = m_block_size < in_size;
 }
 
 bool HuffmanDec::Init() {
@@ -200,30 +223,54 @@ bool HuffmanDec::Init() {
   if (m_root)
     return false;
 
-  // Do we have a Huffman tree?
-  if (m_stream.AtTheEnd())
-    return false;
-
   // Recover Huffman tree.
   int node_count = 0;
   m_root = RecoverTree(&node_count, 0, 0);
+  if (m_root == nullptr)
+    return false;
+  if (m_use_blocks)
+    m_stream.AlignToByte();
 
-  return m_root != nullptr;
+  // Recover the individual blocks.
+  if (m_use_blocks) {
+    BitStream tmp_stream(m_stream);
+    while (!tmp_stream.AtTheEnd()) {
+      uint16_t packed_block_size = tmp_stream.Read16BitsAligned();
+      // TODO(m): Check size of block stream.
+      m_blocks.push_back(BitStream(tmp_stream.byte_ptr(), packed_block_size));
+      tmp_stream.AdvanceBytes(packed_block_size);
+    }
+  }
+
+  return true;
 }
 
-bool HuffmanDec::Uncompress(uint8_t *out, int out_size) {
-  // Sanity check: has Init() been run successfully?
-  if (!m_root)
+bool HuffmanDec::Uncompress(uint8_t *out, int out_size) const {
+  // Has Init() been run successfully?
+  if (!m_root || m_use_blocks)
     return false;
 
+  return UncompressStream(out, out_size, m_stream);
+}
+
+bool HuffmanDec::UncompressBlock(uint8_t *out,
+                                 int out_size,
+                                 int block_no) const {
+  // Has Init() been run successfully?
+  if (!m_root || !m_use_blocks)
+    return false;
+
+  if (block_no < 0 || block_no > static_cast<int>(m_blocks.size()))
+    return false;
+
+  return UncompressStream(out, out_size, m_blocks[block_no]);
+}
+
+bool HuffmanDec::UncompressStream(
+    uint8_t *out, int out_size, BitStream stream) const {
   // Do we have anything to decompress?
   if (m_stream.AtTheEnd())
     return out_size == 0;
-
-  // Pick the source bitstream.
-  // TODO(m): Add support for sub-blocks (i.e. decode only a predefined part of
-  // a stream).
-  BitStream stream(m_stream);
 
   // Decode input stream.
   uint8_t *buf = out;

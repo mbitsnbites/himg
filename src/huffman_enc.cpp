@@ -48,12 +48,29 @@ class OutBitstream {
     m_bit_pos = bit;
   }
 
+  // Align the stream to a byte boundary (do nothing if already aligned).
+  void AlignToByte() {
+    if (m_bit_pos) {
+      m_bit_pos = 0;
+      ++m_byte_ptr;
+    }
+  }
+
+  // Advance N bytes.
+  void AdvanceBytes(int N) {
+    m_byte_ptr += N;
+  }
+
   int Size() const {
     int total_bytes = static_cast<int>(m_byte_ptr - m_base_ptr);
     if (m_bit_pos > 0) {
       ++total_bytes;
     }
     return total_bytes;
+  }
+
+  uint8_t *byte_ptr() {
+    return m_byte_ptr;
   }
 
  private:
@@ -77,7 +94,10 @@ struct EncodeNode {
 };
 
 // Calculate (sorted) histogram for a block of data.
-void Histogram(const uint8_t *in, SymbolInfo *symbols, int size) {
+void Histogram(const uint8_t *in,
+               SymbolInfo *symbols,
+               int size,
+               int block_size) {
   // Clear/init histogram.
   for (int k = 0; k < kNumSymbols; ++k) {
     symbols[k].symbol = static_cast<Symbol>(k);
@@ -86,34 +106,38 @@ void Histogram(const uint8_t *in, SymbolInfo *symbols, int size) {
     symbols[k].bits = 0;
   }
 
-  // Build histogram.
-  for (int k = 0; k < size;) {
-    Symbol symbol = static_cast<Symbol>(in[k]);
+  // Build the histogram for all blocks.
+  const uint8_t *in_end = in + size;
+  for (const uint8_t *block = in; block < in_end; block += block_size) {
+    // Build the histogram for this block.
+    for (int k = 0; k < block_size;) {
+      Symbol symbol = static_cast<Symbol>(block[k]);
 
-    // Possible RLE?
-    if (symbol == 0) {
-      int zeros;
-      for (zeros = 1; zeros < 16662 && (k + zeros) < size; ++zeros) {
-        if (in[k + zeros] != 0)
-          break;
-      }
-      if (zeros == 1) {
-        symbols[0].count++;
-      } else if (zeros == 2) {
-        symbols[kSymTwoZeros].count++;
-      } else if (zeros <= 6) {
-        symbols[kSymUpTo6Zeros].count++;
-      } else if (zeros <= 22) {
-        symbols[kSymUpTo22Zeros].count++;
-      } else if (zeros <= 278) {
-        symbols[kSymUpTo278Zeros].count++;
+      // Possible RLE?
+      if (symbol == 0) {
+        int zeros;
+        for (zeros = 1; zeros < 16662 && (k + zeros) < block_size; ++zeros) {
+          if (block[k + zeros] != 0)
+            break;
+        }
+        if (zeros == 1) {
+          symbols[0].count++;
+        } else if (zeros == 2) {
+          symbols[kSymTwoZeros].count++;
+        } else if (zeros <= 6) {
+          symbols[kSymUpTo6Zeros].count++;
+        } else if (zeros <= 22) {
+          symbols[kSymUpTo22Zeros].count++;
+        } else if (zeros <= 278) {
+          symbols[kSymUpTo278Zeros].count++;
+        } else {
+          symbols[kSymUpTo16662Zeros].count++;
+        }
+        k += zeros;
       } else {
-        symbols[kSymUpTo16662Zeros].count++;
+        symbols[symbol].count++;
+        k++;
       }
-      k += zeros;
-    } else {
-      symbols[symbol].count++;
-      k++;
     }
   }
 }
@@ -218,9 +242,18 @@ int HuffmanEnc::MaxCompressedSize(int uncompressed_size) {
   return uncompressed_size + kMaxTreeDataSize;
 }
 
-int HuffmanEnc::Compress(uint8_t *out, const uint8_t *in, int in_size) {
+int HuffmanEnc::Compress(
+    uint8_t *out, const uint8_t *in, int in_size, int block_size) {
   // Do we have anything to compress?
   if (in_size < 1)
+    return 0;
+
+  if (block_size < 1)
+    block_size = in_size;
+  const bool use_blocks = block_size < in_size;
+
+  // Sanity check: Do the blocks add up the the entire input buffer?
+  if (in_size % block_size != 0)
     return 0;
 
   // Initialize bitstream.
@@ -228,10 +261,12 @@ int HuffmanEnc::Compress(uint8_t *out, const uint8_t *in, int in_size) {
 
   // Calculate and sort histogram for input data.
   SymbolInfo symbols[kNumSymbols];
-  Histogram(in, symbols, in_size);
+  Histogram(in, symbols, in_size, block_size);
 
   // Build Huffman tree.
   MakeTree(symbols, &stream);
+  if (use_blocks)
+    stream.AlignToByte();
 
   // Sort histogram - first symbol first (bubble sort).
   // TODO(m): Quick-sort.
@@ -249,46 +284,70 @@ int HuffmanEnc::Compress(uint8_t *out, const uint8_t *in, int in_size) {
   } while (swaps);
 
   // Encode input stream.
-  for (int k = 0; k < in_size;) {
-    uint8_t symbol = in[k];
+  const uint8_t *in_end = in + in_size;
+  for (const uint8_t *block = in; block < in_end; block += block_size) {
+    uint8_t *block_len_ptr;
+    if (use_blocks) {
+      // Make room for the packed block size.
+      block_len_ptr = stream.byte_ptr();
+      stream.AdvanceBytes(2);
+    }
 
-    // Possible RLE?
-    if (symbol == 0) {
-      int zeros;
-      for (zeros = 1; zeros < 16662 && (k + zeros) < in_size; ++zeros) {
-        if (in[k + zeros] != 0)
-          break;
-      }
-      if (zeros == 1) {
-        stream.WriteBits(symbols[0].code, symbols[0].bits);
-      } else if (zeros == 2) {
-        stream.WriteBits(symbols[kSymTwoZeros].code,
-                         symbols[kSymTwoZeros].bits);
-      } else if (zeros <= 6) {
-        uint32_t count = static_cast<uint32_t>(zeros - 3);
-        stream.WriteBits(symbols[kSymUpTo6Zeros].code,
-                         symbols[kSymUpTo6Zeros].bits);
-        stream.WriteBits(count, 2);
-      } else if (zeros <= 22) {
-        uint32_t count = static_cast<uint32_t>(zeros - 7);
-        stream.WriteBits(symbols[kSymUpTo22Zeros].code,
-                         symbols[kSymUpTo22Zeros].bits);
-        stream.WriteBits(count, 4);
-      } else if (zeros <= 278) {
-        uint32_t count = static_cast<uint32_t>(zeros - 23);
-        stream.WriteBits(symbols[kSymUpTo278Zeros].code,
-                         symbols[kSymUpTo278Zeros].bits);
-        stream.WriteBits(count, 8);
+    // Encode this block.
+    for (int k = 0; k < block_size;) {
+      uint8_t symbol = block[k];
+
+      // Possible RLE?
+      if (symbol == 0) {
+        int zeros;
+        for (zeros = 1; zeros < 16662 && (k + zeros) < block_size; ++zeros) {
+          if (block[k + zeros] != 0)
+            break;
+        }
+        if (zeros == 1) {
+          stream.WriteBits(symbols[0].code, symbols[0].bits);
+        } else if (zeros == 2) {
+          stream.WriteBits(symbols[kSymTwoZeros].code,
+                           symbols[kSymTwoZeros].bits);
+        } else if (zeros <= 6) {
+          uint32_t count = static_cast<uint32_t>(zeros - 3);
+          stream.WriteBits(symbols[kSymUpTo6Zeros].code,
+                           symbols[kSymUpTo6Zeros].bits);
+          stream.WriteBits(count, 2);
+        } else if (zeros <= 22) {
+          uint32_t count = static_cast<uint32_t>(zeros - 7);
+          stream.WriteBits(symbols[kSymUpTo22Zeros].code,
+                           symbols[kSymUpTo22Zeros].bits);
+          stream.WriteBits(count, 4);
+        } else if (zeros <= 278) {
+          uint32_t count = static_cast<uint32_t>(zeros - 23);
+          stream.WriteBits(symbols[kSymUpTo278Zeros].code,
+                           symbols[kSymUpTo278Zeros].bits);
+          stream.WriteBits(count, 8);
+        } else {
+          uint32_t count = static_cast<uint32_t>(zeros - 279);
+          stream.WriteBits(symbols[kSymUpTo16662Zeros].code,
+                           symbols[kSymUpTo16662Zeros].bits);
+          stream.WriteBits(count, 14);
+        }
+        k += zeros;
       } else {
-        uint32_t count = static_cast<uint32_t>(zeros - 279);
-        stream.WriteBits(symbols[kSymUpTo16662Zeros].code,
-                         symbols[kSymUpTo16662Zeros].bits);
-        stream.WriteBits(count, 14);
+        stream.WriteBits(symbols[symbol].code, symbols[symbol].bits);
+        k++;
       }
-      k += zeros;
-    } else {
-      stream.WriteBits(symbols[symbol].code, symbols[symbol].bits);
-      k++;
+    }
+
+    if (use_blocks) {
+      stream.AlignToByte();
+      const uint8_t *block_end_ptr = stream.byte_ptr();
+      int packed_size = static_cast<int>(block_end_ptr - block_len_ptr) - 2;
+      // TODO(m): Add support for variable size packed block sizes. E.g. if
+      // the MSB of the 16 bits is set, use 32 bits instead.
+      if (packed_size > 65535) {
+        return 0;
+      }
+      block_len_ptr[0] = static_cast<uint8_t>(packed_size);
+      block_len_ptr[1] = static_cast<uint8_t>(packed_size >> 8);
     }
   }
 

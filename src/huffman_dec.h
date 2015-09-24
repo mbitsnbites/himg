@@ -10,18 +10,23 @@
 #define HUFFMAN_DEC_H_
 
 #include <cstdint>
+#include <vector>
 
 namespace himg {
 
 class HuffmanDec {
  public:
-  HuffmanDec(const uint8_t *in, int in_size);
+  HuffmanDec(const uint8_t *in, int in_size, int block_size);
 
   // Decode the Huffman data preamble (the tree).
   bool Init();
 
   // Uncompress the Huffman stream (requires that Init() has been called first).
-  bool Uncompress(uint8_t *out, int out_size);
+  bool Uncompress(uint8_t *out, int out_size) const;
+
+  // Uncompress a single block in the Huffman stream (requires that Init() has
+  // been called first).
+  bool UncompressBlock(uint8_t *out, int out_size, int block_no) const;
 
  private:
   // The maximum number of tree nodes.
@@ -49,13 +54,26 @@ class HuffmanDec {
     uint32_t ReadBitsChecked(int bits);
 
     // Peek eight bits from a bitstream (read without advancing the pointer).
-    uint32_t Peek8Bits()const;
+    uint8_t Peek8Bits() const;
+
+    // Read 16 bits from a bitstream, byte aligned.
+    uint16_t Read16BitsAligned();
+
+    // Align the stream to a byte boundary (do nothing if already aligned).
+    void AlignToByte();
 
     // Advance the pointer by N bits.
-    void Advance(int bits);
+    void Advance(int N);
+
+    // Advance N bytes.
+    void AdvanceBytes(int N);
 
     // Check if we have reached the end of the buffer.
     bool AtTheEnd() const;
+
+    const uint8_t *byte_ptr() const {
+      return m_byte_ptr;
+    }
 
     // Check if any of the Read*Checked() methods failed.
     bool read_failed() const;
@@ -80,11 +98,17 @@ class HuffmanDec {
 
   DecodeNode *RecoverTree(int *nodenum, uint32_t code, int bits);
 
+  bool UncompressStream(uint8_t *out, int out_size, BitStream stream) const;
+
   DecodeNode m_nodes[kMaxTreeNodes];
   DecodeLutEntry m_decode_lut[256];
 
   BitStream m_stream;
   DecodeNode *m_root;
+
+  std::vector<BitStream> m_blocks;
+  int m_block_size;
+  bool m_use_blocks;
 };
 
 }  // namespace himg
