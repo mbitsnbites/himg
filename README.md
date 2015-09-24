@@ -12,7 +12,7 @@ with slow (or missing) multiplication instructions.
 
 ## Goals
 
-The first goal was to crate an image codec that is suitable for low end hardware
+The first goal was to create an image codec that is suitable for low end hardware
 (e.g. CPUs without floating point capabilities and slow or lacking
 multiplication / division instructions). Thus, HIMG is designed as an
 integer-only image codec involving no multiplications nor divisions in the core
