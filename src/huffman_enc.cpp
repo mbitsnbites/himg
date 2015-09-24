@@ -9,6 +9,7 @@
 #include "huffman_enc.h"
 
 #include <algorithm>
+#include <vector>
 
 #include "huffman_common.h"
 
@@ -242,8 +243,10 @@ int HuffmanEnc::MaxCompressedSize(int uncompressed_size) {
   return uncompressed_size + kMaxTreeDataSize;
 }
 
-int HuffmanEnc::Compress(
-    uint8_t *out, const uint8_t *in, int in_size, int block_size) {
+int HuffmanEnc::Compress(uint8_t *out,
+                         const uint8_t *in,
+                         int in_size,
+                         int block_size) {
   // Do we have anything to compress?
   if (in_size < 1)
     return 0;
@@ -265,8 +268,7 @@ int HuffmanEnc::Compress(
 
   // Build Huffman tree.
   MakeTree(symbols, &stream);
-  if (use_blocks)
-    stream.AlignToByte();
+  stream.AlignToByte();
 
   // Sort histogram - first symbol first (bubble sort).
   // TODO(m): Quick-sort.
@@ -283,15 +285,13 @@ int HuffmanEnc::Compress(
     }
   } while (swaps);
 
+  std::vector<uint8_t> block_buffer(block_size);
+
   // Encode input stream.
   const uint8_t *in_end = in + in_size;
   for (const uint8_t *block = in; block < in_end; block += block_size) {
-    uint8_t *block_len_ptr;
-    if (use_blocks) {
-      // Make room for the packed block size.
-      block_len_ptr = stream.byte_ptr();
-      stream.AdvanceBytes(2);
-    }
+    // Create a temporary output stream for this block.
+    OutBitstream block_stream(block_buffer.data());
 
     // Encode this block.
     for (int k = 0; k < block_size;) {
@@ -305,50 +305,57 @@ int HuffmanEnc::Compress(
             break;
         }
         if (zeros == 1) {
-          stream.WriteBits(symbols[0].code, symbols[0].bits);
+          block_stream.WriteBits(symbols[0].code, symbols[0].bits);
         } else if (zeros == 2) {
-          stream.WriteBits(symbols[kSymTwoZeros].code,
-                           symbols[kSymTwoZeros].bits);
+          block_stream.WriteBits(symbols[kSymTwoZeros].code,
+                                 symbols[kSymTwoZeros].bits);
         } else if (zeros <= 6) {
           uint32_t count = static_cast<uint32_t>(zeros - 3);
-          stream.WriteBits(symbols[kSymUpTo6Zeros].code,
-                           symbols[kSymUpTo6Zeros].bits);
-          stream.WriteBits(count, 2);
+          block_stream.WriteBits(symbols[kSymUpTo6Zeros].code,
+                                 symbols[kSymUpTo6Zeros].bits);
+          block_stream.WriteBits(count, 2);
         } else if (zeros <= 22) {
           uint32_t count = static_cast<uint32_t>(zeros - 7);
-          stream.WriteBits(symbols[kSymUpTo22Zeros].code,
-                           symbols[kSymUpTo22Zeros].bits);
-          stream.WriteBits(count, 4);
+          block_stream.WriteBits(symbols[kSymUpTo22Zeros].code,
+                                 symbols[kSymUpTo22Zeros].bits);
+          block_stream.WriteBits(count, 4);
         } else if (zeros <= 278) {
           uint32_t count = static_cast<uint32_t>(zeros - 23);
-          stream.WriteBits(symbols[kSymUpTo278Zeros].code,
-                           symbols[kSymUpTo278Zeros].bits);
-          stream.WriteBits(count, 8);
+          block_stream.WriteBits(symbols[kSymUpTo278Zeros].code,
+                                 symbols[kSymUpTo278Zeros].bits);
+          block_stream.WriteBits(count, 8);
         } else {
           uint32_t count = static_cast<uint32_t>(zeros - 279);
-          stream.WriteBits(symbols[kSymUpTo16662Zeros].code,
-                           symbols[kSymUpTo16662Zeros].bits);
-          stream.WriteBits(count, 14);
+          block_stream.WriteBits(symbols[kSymUpTo16662Zeros].code,
+                                 symbols[kSymUpTo16662Zeros].bits);
+          block_stream.WriteBits(count, 14);
         }
         k += zeros;
       } else {
-        stream.WriteBits(symbols[symbol].code, symbols[symbol].bits);
+        block_stream.WriteBits(symbols[symbol].code, symbols[symbol].bits);
         k++;
       }
     }
 
+    const int packed_size = block_stream.Size();
+
     if (use_blocks) {
+      // Write the packed size (in bytes) as two or four bytes (depending on the
+      // size).
       stream.AlignToByte();
-      const uint8_t *block_end_ptr = stream.byte_ptr();
-      int packed_size = static_cast<int>(block_end_ptr - block_len_ptr) - 2;
-      // TODO(m): Add support for variable size packed block sizes. E.g. if
-      // the MSB of the 16 bits is set, use 32 bits instead.
-      if (packed_size > 65535) {
-        return 0;
+      if (packed_size <= 0x7fff) {
+        stream.WriteBits(packed_size, 16);
+      } else {
+        stream.WriteBits((packed_size & 0x7fff) | 0x8000, 16);
+        stream.WriteBits(packed_size >> 15, 16);
       }
-      block_len_ptr[0] = static_cast<uint8_t>(packed_size);
-      block_len_ptr[1] = static_cast<uint8_t>(packed_size >> 8);
     }
+
+    // Append the block stream to the output stream.
+    std::copy(block_buffer.data(),
+              block_buffer.data() + packed_size,
+              stream.byte_ptr());
+    stream.AdvanceBytes(packed_size);
   }
 
   // Calculate size of output data.

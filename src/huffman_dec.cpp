@@ -110,11 +110,11 @@ uint8_t HuffmanDec::BitStream::Peek8Bits() const {
   return ((hi << 8) | lo) >> m_bit_pos;
 }
 
-uint16_t HuffmanDec::BitStream::Read16BitsAligned() {
+uint32_t HuffmanDec::BitStream::Read16BitsAligned() {
   // TODO(m): Check that we don't read past the end.
 
   AlignToByte();
-  uint16_t lo = m_byte_ptr[0], hi = m_byte_ptr[1];
+  uint32_t lo = m_byte_ptr[0], hi = m_byte_ptr[1];
   m_byte_ptr += 2;
   return (hi << 8) | lo;
 }
@@ -228,14 +228,19 @@ bool HuffmanDec::Init() {
   m_root = RecoverTree(&node_count, 0, 0);
   if (m_root == nullptr)
     return false;
-  if (m_use_blocks)
-    m_stream.AlignToByte();
+  m_stream.AlignToByte();
 
   // Recover the individual blocks.
   if (m_use_blocks) {
     BitStream tmp_stream(m_stream);
     while (!tmp_stream.AtTheEnd()) {
-      uint16_t packed_block_size = tmp_stream.Read16BitsAligned();
+      // Read the packed size (two or four bytes).
+      uint32_t packed_block_size = tmp_stream.Read16BitsAligned();
+      if (packed_block_size & 0x8000) {
+        packed_block_size = (packed_block_size & 0x7fff) |
+                            (tmp_stream.Read16BitsAligned() << 15);
+      }
+
       // TODO(m): Check size of block stream.
       m_blocks.push_back(BitStream(tmp_stream.byte_ptr(), packed_block_size));
       tmp_stream.AdvanceBytes(packed_block_size);

@@ -57,7 +57,7 @@ class HuffmanDec {
     uint8_t Peek8Bits() const;
 
     // Read 16 bits from a bitstream, byte aligned.
-    uint16_t Read16BitsAligned();
+    uint32_t Read16BitsAligned();
 
     // Align the stream to a byte boundary (do nothing if already aligned).
     void AlignToByte();
