@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -347,6 +348,21 @@ bool Decoder::DecodeFullResBlockRow(const HuffmanDec &huffman_dec, int y) {
 
   int unpacked_idx = 0;
 
+  // Allocate aligned working buffers (enable aligned memory access & SIMD).
+  int16_t *buf0, *buf1, *lowres;
+  static const int kBufferAlignment = 16;
+  std::unique_ptr<int16_t> buffers(new int16_t[3 * 64 + kBufferAlignment - 1]);
+  {
+    intptr_t alignment_adjust =
+        reinterpret_cast<intptr_t>(buffers.get()) & (kBufferAlignment - 1);
+    if (alignment_adjust)
+      alignment_adjust = kBufferAlignment - alignment_adjust;
+    buf1 = reinterpret_cast<int16_t*>(
+        ASSUME_ALIGNED16(buffers.get() + alignment_adjust));
+    buf0 = reinterpret_cast<int16_t*>(ASSUME_ALIGNED16(buf1 + 64));
+    lowres = reinterpret_cast<int16_t*>(ASSUME_ALIGNED16(buf0 + 64));
+  }
+
   // All channels are inteleaved per block row.
   for (int chan = 0; chan < m_num_channels; ++chan) {
     // Get the low-res (divided by 8x8) image for this channel.
@@ -376,15 +392,12 @@ bool Decoder::DecodeFullResBlockRow(const HuffmanDec &huffman_dec, int y) {
       }
 
       // De-quantize.
-      int16_t buf1[64];
       m_quantize.Unpack(buf1, packed, is_chroma_channel, m_full_res_mapper);
 
       // Inverse transform.
-      int16_t buf0[64];
       Hadamard::Inverse(buf0, buf1);
 
       // Add low-res component.
-      int16_t lowres[64];
       downsampled.GetLowresBlock(lowres, u, v);
       for (int i = 0; i < 64; ++i) {
         buf0[i] += lowres[i];

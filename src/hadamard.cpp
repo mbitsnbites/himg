@@ -8,6 +8,8 @@
 
 #include "hadamard.h"
 
+#include "common.h"
+
 namespace himg {
 
 namespace {
@@ -86,14 +88,17 @@ void Hadamard::Forward(int16_t *out, const int16_t *in) {
 }
 
 void Hadamard::Inverse(int16_t *out, const int16_t *in) {
+  int16_t *_out = reinterpret_cast<int16_t*>(ASSUME_ALIGNED16(out));
+  const int16_t *_in = reinterpret_cast<int16_t*>(ASSUME_ALIGNED16(in));
+
   // Rows.
   for (int i = 0; i < 8; ++i) {
-    Inverse8<1, 3>(&out[i * 8], &in[i * 8]);
+    Inverse8<1, 3>(&_out[i * 8], &_in[i * 8]);
   }
 
   // Columns.
   for (int i = 0; i < 8; ++i) {
-    Inverse8<8, 3>(&out[i], &out[i]);
+    Inverse8<8, 3>(&_out[i], &_out[i]);
   }
 }
 

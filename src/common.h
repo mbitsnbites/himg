@@ -20,6 +20,14 @@
 # define UNLIKELY(expr) (expr)
 #endif
 
+// Alignment macros.
+#if defined(__GNUC__)
+#define ASSUME_ALIGNED16(x) __builtin_assume_aligned(x, 16)
+#else
+// TODO(m): Implement counterparts for VS etc.
+#define ASSUME_ALIGNED16(x) (x)
+#endif
+
 namespace himg {
 
 // Indexing of an 8x8 block.
