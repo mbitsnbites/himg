@@ -24,7 +24,7 @@ int main(int argc, const char **argv) {
   std::vector<uint8_t> packed_data;
   {
     // Open file.
-    std::ifstream f(argv[1], std::ifstream::in | std::ofstream::binary);
+    std::ifstream f(argv[1], std::ifstream::in | std::ifstream::binary);
     if (!f.good()) {
       std::cout << "Unable to read file " << argv[1] << std::endl;
       return -1;
