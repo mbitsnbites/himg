@@ -107,7 +107,7 @@ int main(int argc, const char **argv) {
   FreeImage_Initialise();
   himg::Decoder himg_decoder;
 
-  double min_dt = -1.0, total_t = 0.0;
+  double min_dt = -1.0, max_dt = -1.0, total_t = 0.0;
   for (int iteration = 1; iteration <= kNumIterations; ++iteration) {
     std::cout << "Iteration " << iteration << "/" << kNumIterations
               << std::endl;
@@ -142,11 +142,15 @@ int main(int argc, const char **argv) {
     if (min_dt < 0.0 || dt < min_dt) {
       min_dt = dt;
     }
+    if (max_dt < 0.0 || dt > max_dt) {
+      max_dt = dt;
+    }
     total_t += dt;
   }
 
   double average = total_t / static_cast<double>(kNumIterations);
   std::cout << "    Min: " << min_dt << " ms\n";
+  std::cout << "    Max: " << max_dt << " ms\n";
   std::cout << "Average: " << average << " ms\n";
 
   FreeImage_DeInitialise();
