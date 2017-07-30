@@ -15,21 +15,7 @@ project(himg)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(himg_sources
-    common.cpp
-    decoder.cpp
-    downsampled.cpp
-    encoder.cpp
-    hadamard.cpp
-    huffman_dec.cpp
-    huffman_enc.cpp
-    mapper.cpp
-    quantize.cpp
-    video.cpp
-    ycbcr.cpp
-    )
-add_library(himg ${himg_sources})
-target_include_directories(himg PUBLIC .)
+add_subdirectory(lib)
 
 find_package(Threads REQUIRED)
 
