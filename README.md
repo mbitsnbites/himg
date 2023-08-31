@@ -1,3 +1,5 @@
+## ⚠️ This repository has moved to: https://gitlab.com/mbitsnbites/himg
+
 # HIMG - Hadamard compressed image
 
 HIMG is a work-in-progress lossy image compression format. It is similar to
